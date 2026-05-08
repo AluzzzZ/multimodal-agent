@@ -1,0 +1,417 @@
+id,question,keywords,matched_keywords,keyword_coverage,result_count,top1_score,avg_score,top_manuals,top_image_ids,hit_quality
+1,"请问你们家的商品支持7天无理由退换货吗？
+需要自己承担运费吗？",请问你们家的商品支持|7|天无理由退换货吗|需要自己承担运费吗,7,0.25,5,0.6777,0.6508,烤箱手册|VR头显手册|洗碗机手册,,medium
+2,"我想咨询一下，你们的售后维修服务范围是什么？
+如果是人为损坏的，能维修吗？维修费用怎么算？",我想咨询一下|你们的售后维修服务范围是什么|如果是人为损坏的|能维修吗|维修费用怎么算,,0.0,5,0.8448,0.7546,冰箱手册|摩托艇手册|空调手册,,low
+3,"请问你们的商品能开发票吗？发票类型是什么？
+多久能收到呢？",请问你们的商品能开发票吗|发票类型是什么|多久能收到呢,,0.0,5,0.6758,0.6631,摩托艇手册|VR头显手册|相机手册,,low
+4,"我收到商品后，发现包装破损了，怎么办？
+影响商品退换货吗？",我收到商品后|发现包装破损了|怎么办|影响商品退换货吗,,0.0,5,0.7224,0.6929,冰箱手册|VR头显手册|摩托艇手册,,low
+6,"我想了解一下你们的退款政策，退款多久能到账？
+信用卡会原路返回吗？",我想了解一下你们的退款政策|退款多久能到账|信用卡会原路返回吗,,0.0,5,0.7266,0.699,相机手册|空调手册|相机手册,,low
+7,我收到的商品和图片不一样，颜色偏差很大，我要投诉！,我收到的商品和图片不一样|颜色偏差很大|我要投诉,,0.0,5,0.6617,0.6125,空调手册|水泵手册|洗碗机手册,,low
+8,你们的商品存在虚假宣传，宣传的功能和实际不一样，我要投诉！,你们的商品存在虚假宣传|宣传的功能和实际不一样|我要投诉,,0.0,5,0.6289,0.5947,空调手册|水泵手册|空调手册,,low
+9,我收到的商品少了一件，联系客服说会补发，但是过了一周还没补发！,我收到的商品少了一件|联系客服说会补发|但是过了一周还没补发,,0.0,5,0.6481,0.5994,水泵手册|健身追踪器手册|相机手册,,low
+10,你们的售后维修服务太差了，我送修的商品，过了半个月还没修好！,你们的售后维修服务太差了|我送修的商品|过了半个月还没修好,,0.0,5,0.668,0.6278,洗碗机手册|洗碗机手册|电钻手册,,low
+11,你们的商品保质期有问题，我收到的商品还有1个月就过期了！,你们的商品保质期有问题|我收到的商品还有|1|个月就过期了,,0.0,5,0.7552,0.6876,VR头显手册|电钻手册|冰箱手册,,low
+12,你们的快递员态度特别差，送货时还辱骂我，我要投诉！,你们的快递员态度特别差|送货时还辱骂我|我要投诉,,0.0,5,0.748,0.6821,洗碗机手册|洗碗机手册|功能键盘手册,,low
+13,你们的商品存在质量问题，我使用了一次就坏了，联系客服没人管！,你们的商品存在质量问题|我使用了一次就坏了|联系客服没人管,,0.0,5,0.7097,0.6583,洗碗机手册|洗碗机手册|冰箱手册,,low
+14,我收到的商品被拆封过，里面还有污渍，明显是二手商品，我要投诉！,我收到的商品被拆封过|里面还有污渍|明显是二手商品|我要投诉,,0.0,5,0.7122,0.699,洗碗机手册|洗碗机手册|洗碗机手册,,low
+15,你们的商品宣传是正品，但是我收到后验证是假货，我要投诉！,你们的商品宣传是正品|但是我收到后验证是假货|我要投诉,,0.0,5,0.6785,0.6501,相机手册|相机手册|水泵手册,,low
+16,我收到商品后，发现商品有轻微划痕，不影响使用，能申请换货吗？,我收到商品后|发现商品有轻微划痕|不影响使用|能申请换货吗,,0.0,5,0.7901,0.6896,冰箱手册|空调手册|功能键盘手册,,low
+17,"我想换货，但是原来的商品包装盒丢了，还能换吗？
+需要我额外支付包装费吗？",我想换货|但是原来的商品包装盒丢了|还能换吗|需要我额外支付包装费吗,,0.0,5,0.7292,0.7168,冰箱手册|冰箱手册|儿童电动摩托车手册,,low
+18,我想退货，但是已经超过7天无理由退换货期限了，还能退吗？,我想退货|但是已经超过|7|天无理由退换货期限了|还能退吗,7,0.2,5,0.7394,0.6665,摩托艇手册|摩托艇手册|健身单车手册,,medium
+19,"请问你们的商品能提供纸质版说明书吗？
+电子版在哪里可以找到？",请问你们的商品能提供纸质版说明书吗|电子版在哪里可以找到,,0.0,5,0.6685,0.6549,空调手册|冰箱手册|可编程温控器手册,,low
+20,"请问你们家的商品能寄到国外吗？
+运费怎么算？大概需要多久能到？",请问你们家的商品能寄到国外吗|运费怎么算|大概需要多久能到,,0.0,5,0.6982,0.6729,摩托艇手册|相机手册|相机手册,,low
+21,"我购买的商品，想开发票抬头为公司，需要注意什么？
+抬头写错了，能重新开具吗？",我购买的商品|想开发票抬头为公司|需要注意什么|抬头写错了|能重新开具吗,,0.0,5,0.6733,0.6464,VR头显手册|冰箱手册|发电机手册,,low
+22,"我收到商品后，发现商品有瑕疵，但是已经使用过了，能售后吗？
+换货还是只能维修？",我收到商品后|发现商品有瑕疵|但是已经使用过了|能售后吗|换货还是只能维修,,0.0,5,0.8449,0.699,冰箱手册|功能键盘手册|冰箱手册,,low
+23,我想取消订单，但是订单已经付款了，能全额退款吗？,我想取消订单|但是订单已经付款了|能全额退款吗,,0.0,5,0.7278,0.6963,冰箱手册|VR头显手册|摩托艇手册,,low
+24,"请问你们的商品有售后保障卡吗？
+卡丢了，还能享受售后服务吗？",请问你们的商品有售后保障卡吗|卡丢了|还能享受售后服务吗,,0.0,5,0.8302,0.757,VR头显手册|电钻手册|发电机手册,,low
+25,请问你们家支持以旧换新服务吗？,请问你们家支持以旧换新服务吗,,0.0,5,0.6877,0.631,冰箱手册|烤箱手册|洗碗机手册,,low
+26,"请问你们的智能客服能解答哪些问题？
+智能客服解答不了的问题，怎么办？",请问你们的智能客服能解答哪些问题|智能客服解答不了的问题|怎么办,,0.0,5,0.6932,0.6666,健身追踪器手册|空调手册|健身追踪器手册,,low
+33,"家支持7天无理由退货吗？
+需要满足什么条件？",家支持|7|天无理由退货吗|需要满足什么条件,7,0.25,5,0.6573,0.64,VR头显手册|烤箱手册|洗碗机手册,,medium
+34,"我购买的商品，收到后发现少发了一件，怎么办？
+什么时候能补寄？需要我承担运费吗？",我购买的商品|收到后发现少发了一件|怎么办|什么时候能补寄|需要我承担运费吗,,0.0,5,0.6486,0.624,冰箱手册|VR头显手册|洗碗机手册,,low
+35,想换成其他款式，能换货吗？,想换成其他款式|能换货吗,,0.0,5,0.7591,0.6818,儿童电动摩托车手册|水泵手册|健身追踪器手册,,low
+36,请问商品的生产日期是什么时候？,请问商品的生产日期是什么时候,,0.0,5,0.6985,0.6932,洗碗机手册|洗碗机手册|洗碗机手册,,low
+37,请问你们的商品能提供上门安装服务吗？,请问你们的商品能提供上门安装服务吗,,0.0,5,0.8477,0.8224,洗碗机手册|洗碗机手册|洗碗机手册,,low
+38,请问你们的商品能提供试用装吗？,请问你们的商品能提供试用装吗,,0.0,5,0.9407,0.8177,洗碗机手册|洗碗机手册|冰箱手册,,low
+39,我购买的商品，使用一段时间后出现质量问题，还能售后吗？,我购买的商品|使用一段时间后出现质量问题|还能售后吗,,0.0,5,0.6513,0.6425,发电机手册|功能键盘手册|相机手册,,low
+40,"我想给商品更换成更大的尺寸，能换吗？
+尺寸差价怎么处理？",我想给商品更换成更大的尺寸|能换吗|尺寸差价怎么处理,,0.0,5,0.7161,0.6804,洗碗机手册|洗碗机手册|水泵手册,,low
+41,"快递丢失了，怎么办？""，
+这种情况你们会怎么赔偿？多久能解决？",快递丢失了|怎么办|这种情况你们会怎么赔偿|多久能解决,,0.0,5,0.6974,0.6665,相机手册|相机手册|空调手册,,low
+42,我购买的商品，想申请退款，但是已经使用过了，能退吗？,我购买的商品|想申请退款|但是已经使用过了|能退吗,,0.0,5,0.7821,0.7383,洗碗机手册|洗碗机手册|冰箱手册,,low
+43,我购买的商品，快递送达时，我不在家，怎么办？,我购买的商品|快递送达时|我不在家|怎么办,,0.0,5,0.656,0.5831,空调手册|VR头显手册|水泵手册,,low
+44,请问你们的优惠券能用于所有商品吗？,请问你们的优惠券能用于所有商品吗,,0.0,5,0.8484,0.7507,冰箱手册|洗碗机手册|洗碗机手册,,low
+45,请问你们的商品能提供终身维修服务吗？,请问你们的商品能提供终身维修服务吗,,0.0,5,0.9266,0.8166,洗碗机手册|洗碗机手册|冰箱手册,,low
+46,我上个月购买的家电，使用不到一个月就出现故障，联系售后寄回维修，现在已经维修15天了，还没收到，而且我发现商品是翻新机，并非全新，要求退货退款并赔偿，请问该怎么处理？,我上个月购买的家电|使用不到一个月就出现故障|联系售后寄回维修|现在已经维修|15|天了|还没收到|而且我发现商品是翻新机|并非全新|要求退货退款并赔偿|请问该怎么处理,,0.0,5,0.764,0.7255,健身追踪器手册|健身追踪器手册|可编程温控器手册,,low
+47,"我在你们平台批量购买了100件商品用于企业采购，收到货后发现有20件存在质量问题，15件少发，而且发票开错了抬头，需要重新开具，同时想申请质量问题商品的换货和少发商品的补寄，请问流程是什么？"",",我在你们平台批量购买了|100|件商品用于企业采购|收到货后发现有|20|件存在质量问题|15|件少发|而且发票开错了抬头|需要重新开具|同时想申请质量问题商品的换货和少发商品的补寄|请问流程是什么,,0.0,5,0.795,0.7648,电钻手册|电钻手册|空调手册,drill0_16,low
+48,我购买的食品类商品，收到后发现生产日期临近过期，而且包装破损，部分商品受潮无法食用，我要求退货退款并赔偿，同时担心食用了受潮商品影响健康，请问能提供相关保障吗？,我购买的食品类商品|收到后发现生产日期临近过期|而且包装破损|部分商品受潮无法食用|我要求退货退款并赔偿|同时担心食用了受潮商品影响健康|请问能提供相关保障吗,,0.0,5,0.7615,0.7426,冰箱手册|冰箱手册|冰箱手册,,low
+49,我购买的商品包装破损，商品出现损坏，而且快递员拒绝承认是运输问题，同时我已经签收商品，请问还能申请售后吗？,我购买的商品包装破损|商品出现损坏|而且快递员拒绝承认是运输问题|同时我已经签收商品|请问还能申请售后吗,,0.0,5,0.7114,0.6819,功能键盘手册|相机手册|发电机手册,,low
+50,我购买的大家电需要上门安装，但是安装人员上门后说需要额外收取配件费，而且安装服务原本应该是免费的，同时安装人员操作不规范，导致家电出现轻微损坏，请问该怎么处理？,我购买的大家电需要上门安装|但是安装人员上门后说需要额外收取配件费|而且安装服务原本应该是免费的|同时安装人员操作不规范|导致家电出现轻微损坏|请问该怎么处理,,0.0,5,0.7868,0.7602,空调手册|电钻手册|空调手册,,low
+51,"我购买的商品在质保期内出现质量问题，寄回维修后，维修人员说需要更换配件，而且要收取配件费，但是质保期内应该免费维修，同时维修时间已经超过承诺的7天，请问该怎么处理？"",",我购买的商品在质保期内出现质量问题|寄回维修后|维修人员说需要更换配件|而且要收取配件费|但是质保期内应该免费维修|同时维修时间已经超过承诺的|7|请问该怎么处理,,0.0,5,0.8455,0.8074,冰箱手册|发电机手册|冰箱手册,,low
+52,我购买的大型设备需要上门检修，但是检修人员上门后说设备故障无法现场修复，需要拉回仓库维修，而且维修时间不确定，同时我担心设备拉回过程中出现损坏，请问该怎么处理？,我购买的大型设备需要上门检修|但是检修人员上门后说设备故障无法现场修复|需要拉回仓库维修|而且维修时间不确定|同时我担心设备拉回过程中出现损坏|请问该怎么处理,,0.0,5,0.8344,0.7753,功能键盘手册|烤箱手册|烤箱手册,,low
+53,我想试用商品，但是试用期间商品出现故障，而且不是人为操作导致的，同时我想延长试用期限，请问可以吗？另外故障商品能更换吗？,我想试用商品|但是试用期间商品出现故障|而且不是人为操作导致的|同时我想延长试用期限|请问可以吗|另外故障商品能更换吗,,0.0,5,0.7552,0.7309,VR头显手册|冰箱手册|电钻手册,,low
+54,我购买的商品，收到后发现是临期商品（还有15天过期），但下单时页面未标注临期，而且商品包装上也没有临期提示，我要求退货退款并赔偿，请问可以吗？,我购买的商品|收到后发现是临期商品|还有|15|天过期|但下单时页面未标注临期|而且商品包装上也没有临期提示|我要求退货退款并赔偿|请问可以吗,15,0.1111,5,0.7873,0.7665,洗碗机手册|功能键盘手册|健身单车手册,,low
+55,我购买的商品，收到后发现商品的颜色和详情页描述的不一致，详情页是深红色，实际收到的是浅红色，而且商品有轻微的异味，想申请换货,我购买的商品|收到后发现商品的颜色和详情页描述的不一致|详情页是深红色|实际收到的是浅红色|而且商品有轻微的异味|想申请换货,,0.0,5,0.8095,0.7389,空调手册|洗碗机手册|冰箱手册,,low
+57,我购买的商品，快递寄到后，我拆开包装发现商品损坏，但是快递员已经离开，没有当场验货，请问还能申请售后吗？,我购买的商品|快递寄到后|我拆开包装发现商品损坏|但是快递员已经离开|没有当场验货|请问还能申请售后吗,,0.0,5,0.825,0.7033,冰箱手册|功能键盘手册|冰箱手册,,low
+58,"我购买的商品，使用时发现商品的功能和详情页描述的不一致，详情页说支持无线充电，实际不支持，而且商品的续航时间也比描述的短很多，要求退货退款并赔偿，请问可以吗？"",",我购买的商品|使用时发现商品的功能和详情页描述的不一致|详情页说支持无线充电|实际不支持|而且商品的续航时间也比描述的短很多|要求退货退款并赔偿|请问可以吗,,0.0,5,0.7169,0.7025,电钻手册|空调手册|空调手册,drill0_16,low
+64,使用吹风机时，人员需要佩戴哪些防护装备？,使用吹风机时|人员需要佩戴哪些防护装备,,0.0,5,0.819,0.6931,冰箱手册|健身追踪器手册|冰箱手册,,low
+65,操作吹风机时，人员需要注意哪些安全要点？,操作吹风机时|人员需要注意哪些安全要点,,0.0,5,0.7883,0.759,VR头显手册|洗碗机手册|洗碗机手册,,low
+66,使用吹风机时，如何调节化油器？,使用吹风机时|如何调节化油器,,0.0,5,0.889,0.8627,冰箱手册|洗碗机手册|洗碗机手册,,low
+67,吹风机冷机时，该如何启动？,吹风机冷机时|该如何启动,,0.0,5,0.8818,0.8539,冰箱手册|洗碗机手册|洗碗机手册,,low
+68,吹风机热机时，该如何启动？,吹风机热机时|该如何启动,,0.0,5,0.8818,0.8539,冰箱手册|洗碗机手册|洗碗机手册,,low
+69,该如何关闭吹风机？,该如何关闭吹风机,,0.0,5,0.8782,0.8752,洗碗机手册|洗碗机手册|洗碗机手册,,low
+70,空调的重要组成部件有哪些？,空调的重要组成部件有哪些,,0.0,5,0.7105,0.6817,空调手册|空调手册|相机手册,,low
+71,如何找到空调遥控器的按键？,如何找到空调遥控器的按键,,0.0,5,0.8219,0.7658,空调手册|空调手册|发电机手册,,low
+72,如何给空调遥控器安装电池？,如何给空调遥控器安装电池,,0.0,5,0.817,0.7287,空调手册|空调手册|空调手册,,low
+73,如何安装空调遥控器支架？,如何安装空调遥控器支架,,0.0,5,0.8183,0.7279,空调手册|空调手册|空调手册,,low
+74,如何用空调快速调节室内温度？,如何用空调快速调节室内温度,,0.0,5,0.9452,0.8396,空调手册|发电机手册|发电机手册,,low
+75,如何使用空调的自清洁运行功能？,如何使用空调的自清洁运行功能,,0.0,5,0.8247,0.7623,空调手册|水泵手册|发电机手册,,low
+76,如何使用空调的等离子净化功能？,如何使用空调的等离子净化功能,,0.0,5,0.7811,0.7175,空调手册|空调手册|空调手册,,low
+77,单冷型空调如何开启自动运行模式？,单冷型空调如何开启自动运行模式,,0.0,5,0.8789,0.7824,空调手册|空调手册|水泵手册,,low
+78,如何使用空调的自动转换运行功能？,如何使用空调的自动转换运行功能,,0.0,5,0.8389,0.7526,空调手册|空调手册|空调手册,,low
+79,如何开启空调的节能制冷模式？,如何开启空调的节能制冷模式,,0.0,5,0.8367,0.7727,空调手册|空调手册|发电机手册,,low
+80,无遥控器时如何操作空调？,无遥控器时如何操作空调,,0.0,5,0.8499,0.7841,空调手册|水泵手册|空调手册,,low
+81,如何让空调实现自动重启？,如何让空调实现自动重启,,0.0,5,0.8612,0.7899,空调手册|空调手册|水泵手册,,low
+82,不同型号空调的清洁频率是多少？,不同型号空调的清洁频率是多少,,0.0,5,0.7316,0.7089,水泵手册|空调手册|发电机手册,Manual31_30,low
+83,如何清洁空调的空气滤网？,如何清洁空调的空气滤网,,0.0,5,0.8339,0.7884,空调手册|水泵手册|发电机手册,,low
+84,如何清洁空调的3M多重防护滤网？,如何清洁空调的|3m|多重防护滤网,3m|多重防护滤网,0.6667,5,0.8038,0.776,空调手册|水泵手册|空调手册,,high
+85,如何清洁空调的等离子滤网？,如何清洁空调的等离子滤网,,0.0,5,0.7627,0.7221,空调手册|空调手册|空调手册,,low
+86,如何快速组装蒸汽清洁机？,如何快速组装蒸汽清洁机,,0.0,5,0.9131,0.7983,冰箱手册|冰箱手册|空调手册,,low
+87,蒸汽清洁机有哪些实用的产品功能？如何快速上手使用？,蒸汽清洁机有哪些实用的产品功能|如何快速上手使用,,0.0,5,0.7427,0.7335,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+88,如何使用蒸汽清洁机清洁硬质地面？,如何使用蒸汽清洁机清洁硬质地面,,0.0,5,0.7578,0.7531,空调手册|冰箱手册|冰箱手册,Manual01_31,low
+89,组装人体工学椅涉及哪些部件？,组装人体工学椅涉及哪些部件,,0.0,5,0.6847,0.6439,水泵手册|摩托艇手册|冰箱手册,,low
+90,椅子的扶手使用一段时间后为什么会松动？,椅子的扶手使用一段时间后为什么会松动,,0.0,5,0.7572,0.6841,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+91,这款椅子有哪些功能？,这款椅子有哪些功能,,0.0,5,0.7629,0.6983,空调手册|可编程温控器手册|冰箱手册,,low
+92,洗碗机的部件有哪些？,洗碗机的部件有哪些,,0.0,5,0.7183,0.6684,水泵手册|空调手册|空调手册,,low
+93,首次使用时，如何将洗碗机连接到排水口？,首次使用时|如何将洗碗机连接到排水口,,0.0,5,0.762,0.7344,水泵手册|摩托艇手册|水泵手册,Manual31_19,low
+94,使用前如何为洗碗机添加专用盐？,使用前如何为洗碗机添加专用盐,,0.0,5,0.8589,0.7719,摩托艇手册|发电机手册|健身追踪器手册,,low
+95,如何为洗碗机添加洗涤剂？,如何为洗碗机添加洗涤剂,,0.0,5,0.8683,0.7625,摩托艇手册|发电机手册|发电机手册,,low
+96,如何为洗碗机添加洗涤块？,如何为洗碗机添加洗涤块,,0.0,5,0.8683,0.7625,摩托艇手册|发电机手册|发电机手册,,low
+97,如何在洗碗机中添加和使用亮碟剂以获得更好的洗涤效果？,如何在洗碗机中添加和使用亮碟剂以获得更好的洗涤效果,,0.0,5,0.7688,0.73,摩托艇手册|健身追踪器手册|洗碗机手册,,low
+98,哪些物品不适合在洗碗机中清洗？,哪些物品不适合在洗碗机中清洗,,0.0,5,0.6494,0.6287,洗碗机手册|洗碗机手册|洗碗机手册,,low
+99,如何根据洗碗机型号安装餐具篮？,如何根据洗碗机型号安装餐具篮,,0.0,5,0.9093,0.8718,VR头显手册|洗碗机手册|洗碗机手册,,low
+100,使用洗碗机前如何安装可折叠下层篮架？,使用洗碗机前如何安装可折叠下层篮架,,0.0,5,0.8246,0.8028,空调手册|洗碗机手册|洗碗机手册,Manual01_2|Manual01_3,low
+101,如何调节洗碗机满载时上下碗篮的高度？,如何调节洗碗机满载时上下碗篮的高度,,0.0,5,0.8052,0.7471,洗碗机手册|冰箱手册|吹风机手册,Manual06_13,low
+102,如何清洁洗碗机的进水管滤网？,如何清洁洗碗机的进水管滤网,,0.0,5,0.8023,0.7438,冰箱手册|冰箱手册|水泵手册,,low
+103,如何清洁洗碗机的上层喷淋臂？,如何清洁洗碗机的上层喷淋臂,,0.0,5,0.7054,0.6915,VR头显手册|冰箱手册|健身追踪器手册,,low
+104,如何拆除空气净化器滤网的塑料包装？,如何拆除空气净化器滤网的塑料包装,,0.0,5,0.8446,0.7834,空调手册|空调手册|发电机手册,,low
+105,如何安装空气净化器的脚轮？,如何安装空气净化器的脚轮,,0.0,5,0.7796,0.7628,洗碗机手册|空调手册|洗碗机手册,,low
+106,空气净化器通常有哪些模式？如何设置？这些模式有什么特点？,空气净化器通常有哪些模式|如何设置|这些模式有什么特点,,0.0,5,0.7536,0.7384,空调手册|空调手册|相机手册,,low
+107,空气净化器的室内空气质量指示灯是什么？,空气净化器的室内空气质量指示灯是什么,,0.0,5,0.8298,0.7929,空调手册|空调手册|发电机手册,,low
+108,如何清洁空气净化器的设备内外？,如何清洁空气净化器的设备内外,,0.0,5,0.8217,0.7179,空调手册|空调手册|发电机手册,,low
+109,如何清洁空气净化器的滤网？,如何清洁空气净化器的滤网,,0.0,5,0.8048,0.7718,空调手册|水泵手册|空调手册,,low
+110,如何更换空气净化器的滤网？,如何更换空气净化器的滤网,,0.0,5,0.8219,0.7658,空调手册|空调手册|发电机手册,,low
+111,如何清洁空气净化器的灰尘传感器？,如何清洁空气净化器的灰尘传感器,,0.0,5,0.8218,0.7911,空调手册|水泵手册|空调手册,,low
+112,空气净化器需要长期存放时该怎么做？,空气净化器需要长期存放时该怎么做,,0.0,5,0.8675,0.7955,空调手册|水泵手册|发电机手册,,low
+113,如何了解这款健身单车的技术规格？,如何了解这款健身单车的技术规格,,0.0,5,0.7702,0.7542,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+114,启动健身单车前，我需要做什么？,启动健身单车前|我需要做什么,,0.0,5,0.6906,0.6704,健身追踪器手册|健身追踪器手册|水泵手册,,low
+115,我听说买的这款健身单车配有控制台和显示功能，能为我介绍一下吗？,我听说买的这款健身单车配有控制台和显示功能|能为我介绍一下吗,,0.0,5,0.7537,0.712,健身追踪器手册|健身追踪器手册|空调手册,,low
+116,在健身单车上运动前，我需要调整什么来保证运动的舒适度？,在健身单车上运动前|我需要调整什么来保证运动的舒适度,,0.0,5,0.7654,0.7349,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+117,使用健身单车的轻松骑行类别时，我能体验到哪些预设运动程序？,使用健身单车的轻松骑行类别时|我能体验到哪些预设运动程序,,0.0,5,0.8281,0.7806,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+118,使用健身单车的山地类别时，我能体验到哪些预设运动程序？,使用健身单车的山地类别时|我能体验到哪些预设运动程序,,0.0,5,0.703,0.6985,健身追踪器手册|健身追踪器手册|冰箱手册,,low
+119,挑战健身单车的最高难度类别时，我能体验到哪些预设运动程序？,挑战健身单车的最高难度类别时|我能体验到哪些预设运动程序,,0.0,5,0.8143,0.7644,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+120,如果我想编辑健身单车的用户档案，需要遵循哪些步骤？,如果我想编辑健身单车的用户档案|需要遵循哪些步骤,,0.0,5,0.7491,0.719,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+121,我想在使用健身单车时设置心率目标，能否根据我的年龄为我推荐合适的目标心率？,我想在使用健身单车时设置心率目标|能否根据我的年龄为我推荐合适的目标心率,,0.0,5,0.7612,0.7288,健身单车手册|健身追踪器手册|健身追踪器手册,Manual14_23,low
+122,我听说这款健身单车有体能测试程序，这是什么功能？,我听说这款健身单车有体能测试程序|这是什么功能,,0.0,5,0.7285,0.7176,健身追踪器手册|健身追踪器手册|健身追踪器手册,Manual16_29,low
+123,如果要给电钻充电，需要遵循哪些步骤？,如果要给电钻充电|需要遵循哪些步骤,,0.0,5,0.8897,0.8578,冰箱手册|洗碗机手册|洗碗机手册,,low
+124,我的DCB101型号电钻指示灯闪烁时，这些闪烁标识代表什么含义？,我的|dcb101|型号电钻指示灯闪烁时|这些闪烁标识代表什么含义,,0.0,5,0.6977,0.672,电钻手册|空调手册|水泵手册,,low
+126,使用电钻时，如何安装单套无键夹头？,使用电钻时|如何安装单套无键夹头,,0.0,5,0.8985,0.8623,VR头显手册|洗碗机手册|洗碗机手册,,low
+127,如果要安装和拆卸电钻的电池组，需要遵循什么步骤？,如果要安装和拆卸电钻的电池组|需要遵循什么步骤,,0.0,5,0.9767,0.915,洗碗机手册|洗碗机手册|洗碗机手册,,low
+128,使用电钻的腰带挂钩和批头夹时，需要特别注意什么？,使用电钻的腰带挂钩和批头夹时|需要特别注意什么,,0.0,5,0.8117,0.7788,洗碗机手册|洗碗机手册|健身追踪器手册,,low
+129,购买电钻后，应配备哪些附件？,购买电钻后|应配备哪些附件,,0.0,5,0.8864,0.8591,冰箱手册|洗碗机手册|洗碗机手册,,low
+130,电钻的三年有限保修包含哪些内容？,电钻的三年有限保修包含哪些内容,,0.0,5,0.767,0.7296,功能键盘手册|电钻手册|电钻手册,,low
+131,购买健身追踪器后，包装盒里应该有什么？,购买健身追踪器后|包装盒里应该有什么,,0.0,5,0.7268,0.7028,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+132,我刚发现健身追踪器电量低，该如何正确为其充电？,我刚发现健身追踪器电量低|该如何正确为其充电,,0.0,5,0.7583,0.7415,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+133,为了让健身追踪器性能更佳，日常佩戴和运动时该将其佩戴在什么位置？,为了让健身追踪器性能更佳|日常佩戴和运动时该将其佩戴在什么位置,,0.0,5,0.7345,0.7213,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+134,我的健身追踪器表带太紧了，该如何扣紧表带？,我的健身追踪器表带太紧了|该如何扣紧表带,,0.0,5,0.7053,0.6807,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+135,我想取下健身追踪器，该如何正确拆卸表带？,我想取下健身追踪器|该如何正确拆卸表带,,0.0,5,0.801,0.745,健身追踪器手册|相机手册|健身追踪器手册,,low
+136,我听说可以操作健身追踪器的界面，具体该遵循哪些步骤？,我听说可以操作健身追踪器的界面|具体该遵循哪些步骤,,0.0,5,0.7444,0.7295,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+137,健身追踪器能对手机的通知实现哪些功能？,健身追踪器能对手机的通知实现哪些功能,,0.0,5,0.8574,0.8208,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+138,能告诉我健身追踪器是如何追踪皮肤温度变化的吗？,能告诉我健身追踪器是如何追踪皮肤温度变化的吗,,0.0,5,0.7325,0.6999,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+139,通过运动应用，健身追踪器是如何追踪并分析我的运动情况的？,通过运动应用|健身追踪器是如何追踪并分析我的运动情况的,通过运动应用,0.5,5,0.6956,0.6644,健身追踪器手册|健身追踪器手册|健身追踪器手册,,medium
+140,健身追踪器是如何测量我的心率的？,健身追踪器是如何测量我的心率的,,0.0,5,0.7505,0.7316,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+141,我该如何仅使用健身追踪器完成消费支付？,我该如何仅使用健身追踪器完成消费支付,,0.0,5,0.7558,0.7368,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+142,使用健身追踪器时，我可能会遇到哪些问题以及该如何解决？,使用健身追踪器时|我可能会遇到哪些问题以及该如何解决,,0.0,5,0.7866,0.7215,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+144,我想给健身追踪器设置锁屏，该如何实现？,我想给健身追踪器设置锁屏|该如何实现,,0.0,5,0.7551,0.746,健身追踪器手册|健身追踪器手册|健身追踪器手册,,low
+145,使用冰箱冰柜时需要注意什么？只需告诉我手册中的前五条。,使用冰箱冰柜时需要注意什么|只需告诉我手册中的前五条,,0.0,5,0.7624,0.7092,摩托艇手册|洗碗机手册|洗碗机手册,,low
+146,给冰箱连接电源时，需要做到哪些注意事项？只需告诉我手册中的前五条。,给冰箱连接电源时|需要做到哪些注意事项|只需告诉我手册中的前五条,,0.0,5,0.7437,0.695,摩托艇手册|相机手册|洗碗机手册,,low
+153,考虑到燃油高度易燃且有毒，使用发电机时我需要注意什么？,考虑到燃油高度易燃且有毒|使用发电机时我需要注意什么,,0.0,5,0.7521,0.7077,冰箱手册|摩托艇手册|空调手册,,low
+154,发电机工作后，发动机和消音器可能会发烫，这种情况下我该如何保证自身安全？,发电机工作后|发动机和消音器可能会发烫|这种情况下我该如何保证自身安全,,0.0,5,0.7801,0.765,洗碗机手册|洗碗机手册|洗碗机手册,,low
+155,日常使用中，如何防止发电机触电事故的发生？,日常使用中|如何防止发电机触电事故的发生,,0.0,5,0.6269,0.6189,洗碗机手册|电钻手册|摩托艇手册,,low
+156,需要通过发电机的燃油开关旋钮供油时，我该遵循哪些步骤？,需要通过发电机的燃油开关旋钮供油时|我该遵循哪些步骤,,0.0,5,0.7939,0.7269,洗碗机手册|洗碗机手册|冰箱手册,,low
+157,使用发电机时，燃油的使用前检查十分重要，该如何操作？,使用发电机时|燃油的使用前检查十分重要|该如何操作,,0.0,5,0.6827,0.6551,发电机手册|电钻手册|相机手册,,low
+158,启动发电机发动机的前两个步骤是什么？,启动发电机发动机的前两个步骤是什么,,0.0,5,0.8086,0.7604,发电机手册|空调手册|发电机手册,,low
+159,我需要给发电机连接交流电，该过程中如何保证自身安全？,我需要给发电机连接交流电|该过程中如何保证自身安全,,0.0,5,0.7529,0.7351,空调手册|电钻手册|洗碗机手册,Manual01_4|Manual01_5,low
+160,我注意到发电机上有两种不同的开关，请为我介绍一下。,我注意到发电机上有两种不同的开关|请为我介绍一下,,0.0,5,0.6979,0.6929,洗碗机手册|洗碗机手册|冰箱手册,,low
+161,我该在哪里查找并记录发电机的标识信息？,我该在哪里查找并记录发电机的标识信息,,0.0,5,0.6526,0.6423,空调手册|健身追踪器手册|洗碗机手册,,low
+162,使用发电机的直流保护器时，我需要注意什么？,使用发电机的直流保护器时|我需要注意什么,,0.0,5,0.7498,0.721,VR头显手册|电钻手册|发电机手册,,low
+163,使用发电机前，对发动机机油进行使用前检查十分重要，正确的步骤是什么？,使用发电机前|对发动机机油进行使用前检查十分重要|正确的步骤是什么,使用发电机前,0.3333,5,0.8361,0.7407,发电机手册|冰箱手册|水泵手册,,medium
+164,根据手册说明，启动发电机发动机的最后三个步骤是什么？,根据手册说明|启动发电机发动机的最后三个步骤是什么,,0.0,5,0.8086,0.7752,洗碗机手册|洗碗机手册|健身追踪器手册,,low
+165,发电机的电池电量不足了，该如何正确充电？,发电机的电池电量不足了|该如何正确充电,,0.0,5,0.6829,0.6634,空调手册|洗碗机手册|洗碗机手册,,low
+166,我需要让发电机的发动机停机，告诉我该如何操作。,我需要让发电机的发动机停机|告诉我该如何操作,,0.0,5,0.7985,0.7218,洗碗机手册|洗碗机手册|冰箱手册,,low
+167,根据手册的建议，使用发电机时该如何检查火花塞？,根据手册的建议|使用发电机时该如何检查火花塞,,0.0,5,0.872,0.7981,水泵手册|发电机手册|水泵手册,,low
+168,为了正确更换发电机的发动机机油，我需要遵循的前六个步骤是什么？,为了正确更换发电机的发动机机油|我需要遵循的前六个步骤是什么,,0.0,5,0.8842,0.7321,水泵手册|发电机手册|相机手册,,low
+169,我在操作发电机空气滤清器时出现了失误，请告诉我正确的步骤。,我在操作发电机空气滤清器时出现了失误|请告诉我正确的步骤,,0.0,5,0.7209,0.7118,空调手册|空调手册|发电机手册,Manual01_29|Manual01_30,low
+170,如果发电机的发动机无法启动，我该怎么办？,如果发电机的发动机无法启动|我该怎么办,,0.0,5,0.7724,0.6678,摩托艇手册|洗碗机手册|洗碗机手册,,low
+171,我需要将发电机的燃油排空，该如何正确操作？,我需要将发电机的燃油排空|该如何正确操作,,0.0,5,0.7344,0.6937,空调手册|空调手册|空调手册,,low
+172,使用该发电机为对电压敏感的精密设备供电前，我需要做什么？,使用该发电机为对电压敏感的精密设备供电前|我需要做什么,,0.0,5,0.7574,0.6918,发电机手册|洗碗机手册|空调手册,,low
+173,在划船或钓鱼的场景中，拖曳速度、半滑航速度和滑航速度分别指什么，它们在技巧和应用上有何不同？,在划船或钓鱼的场景中|拖曳速度|半滑航速度和滑航速度分别指什么|它们在技巧和应用上有何不同,,0.0,5,0.7949,0.7487,空调手册|空调手册|烤箱手册,,low
+174,如何在深水中登上并平衡摩托艇，确保操作的安全性和稳定性？,如何在深水中登上并平衡摩托艇|确保操作的安全性和稳定性,,0.0,5,0.7737,0.7663,洗碗机手册|水泵手册|水泵手册,,low
+175,在滑航速度下驾驶摩托艇转弯时，有哪些技巧能在急转弯时保证稳定性和操控性？,在滑航速度下驾驶摩托艇转弯时|有哪些技巧能在急转弯时保证稳定性和操控性,,0.0,5,0.824,0.7992,可编程温控器手册|洗碗机手册|洗碗机手册,Manual36_32|Manual36_33,low
+176,驾驶摩托艇时，有哪些技巧能在完成大椭圆转弯、绕圈和8字行驶动作的同时，保持操控性和稳定性？,驾驶摩托艇时|有哪些技巧能在完成大椭圆转弯|绕圈和|8|字行驶动作的同时|保持操控性和稳定性,8,0.1667,5,0.7953,0.771,水泵手册|发电机手册|空调手册,,low
+177,在驾驶摩托艇进行中低速转弯时，如何控制油门并保持行驶的稳定性和操控性？,在驾驶摩托艇进行中低速转弯时|如何控制油门并保持行驶的稳定性和操控性,,0.0,5,0.8044,0.7523,水泵手册|发电机手册|冰箱手册,,low
+178,如何驾驶摩托艇以拖曳速度直行和转弯，保证操作的平顺性和操控性？,如何驾驶摩托艇以拖曳速度直行和转弯|保证操作的平顺性和操控性,,0.0,5,0.794,0.7548,水泵手册|电钻手册|发电机手册,,low
+179,摩托艇全加速行驶时，如何安全平稳地将其停稳？,摩托艇全加速行驶时|如何安全平稳地将其停稳,,0.0,5,0.7826,0.7626,冰箱手册|冰箱手册|冰箱手册,Manual17_29,low
+180,驾驶摩托艇时，如何避免发生碰撞事故，保障自身和水上其他人员的安全？,驾驶摩托艇时|如何避免发生碰撞事故|保障自身和水上其他人员的安全,,0.0,5,0.773,0.7697,洗碗机手册|洗碗机手册|洗碗机手册,,low
+181,水泵发动机安全停机的正确步骤是什么？,水泵发动机安全停机的正确步骤是什么,,0.0,5,0.8208,0.7621,水泵手册|水泵手册|洗碗机手册,Manual31_3,low
+182,水泵的核心部件有哪些？,水泵的核心部件有哪些,,0.0,5,0.5708,0.565,健身单车手册|蒸汽清洁机手册|烤箱手册,,low
+183,清洗油箱滤网的详细步骤是什么？,清洗油箱滤网的详细步骤是什么,,0.0,5,0.8673,0.7551,冰箱手册|冰箱手册|空调手册,,low
+184,水泵安全排放燃油的正确步骤是什么？,水泵安全排放燃油的正确步骤是什么,,0.0,5,0.8173,0.757,水泵手册|水泵手册|洗碗机手册,Manual31_3,low
+185,水泵无法抽水的潜在原因有哪些，该如何有效诊断并解决这些问题？,水泵无法抽水的潜在原因有哪些|该如何有效诊断并解决这些问题,,0.0,5,0.7782,0.7164,水泵手册|摩托艇手册|摩托艇手册,,low
+186,如何为温控器设置日期和时间，以实现精准的日程和温度控制？,如何为温控器设置日期和时间|以实现精准的日程和温度控制,,0.0,5,0.736,0.6856,洗碗机手册|洗碗机手册|健身追踪器手册,,low
+187,如何调整温控器的系统和风扇运行设置，以优化供暖和制冷效果？,如何调整温控器的系统和风扇运行设置|以优化供暖和制冷效果,,0.0,5,0.7572,0.7332,洗碗机手册|电钻手册|洗碗机手册,,low
+188,如何调整温控器的程序日程，以实现高效的能源利用和温度控制？,如何调整温控器的程序日程|以实现高效的能源利用和温度控制,,0.0,5,0.6951,0.6782,洗碗机手册|水泵手册|洗碗机手册,,low
+189,如何在不影响已编程日程的情况下，临时更改温控器的温度设置？,如何在不影响已编程日程的情况下|临时更改温控器的温度设置,,0.0,5,0.8352,0.7564,冰箱手册|VR头显手册|发电机手册,,low
+190,当设备或系统出现警报界面时，应采取哪些操作？,当设备或系统出现警报界面时|应采取哪些操作,,0.0,5,0.7516,0.7272,发电机手册|冰箱手册|VR头显手册,,low
+191,针对热泵应如何修改接线，以确保连接正确且功能正常？,针对热泵应如何修改接线|以确保连接正确且功能正常,,0.0,5,0.8057,0.7578,发电机手册|发电机手册|电钻手册,Manual18_37,low
+192,如何安全更换温控器的电池，确保更换后设备功能正常？,如何安全更换温控器的电池|确保更换后设备功能正常,,0.0,5,0.8027,0.7908,电钻手册|洗碗机手册|洗碗机手册,,low
+193,当标签与端子不匹配时，应如何正确为温控器重新接线，确保连接无误？,当标签与端子不匹配时|应如何正确为温控器重新接线|确保连接无误,,0.0,5,0.7929,0.7465,空调手册|儿童电动摩托车手册|电钻手册,,low
+194,遇到温控器故障时，可采用哪些故障排除解决方案？,遇到温控器故障时|可采用哪些故障排除解决方案,,0.0,5,0.8185,0.7226,摩托艇手册|健身追踪器手册|健身追踪器手册,,low
+195,设备或系统中构成处理器单元的关键组件或部件有哪些？,设备或系统中构成处理器单元的关键组件或部件有哪些,,0.0,5,0.7866,0.7371,VR头显手册|VR头显手册|电钻手册,,low
+196,耳机有哪些类型，以及如何更换耳塞？,耳机有哪些类型|以及如何更换耳塞,,0.0,5,0.8,0.7082,VR头显手册|VR头显手册|VR头显手册,Manual38_4,low
+197,为保持遮光罩的清晰度和功能性，正确的清洁步骤是什么？,为保持遮光罩的清晰度和功能性|正确的清洁步骤是什么,,0.0,5,0.7916,0.7239,相机手册|功能键盘手册|电钻手册,,low
+198,为确保安全且最佳的使用效果，游玩区域的推荐尺寸是多少？,为确保安全且最佳的使用效果|游玩区域的推荐尺寸是多少,,0.0,5,0.7832,0.7587,电钻手册|洗碗机手册|洗碗机手册,,low
+199,使用和操作VR头显时应采取哪些安全预防措施，以确保用户安全和设备使用寿命？,使用和操作|vr|头显时应采取哪些安全预防措施|以确保用户安全和设备使用寿命,,0.0,5,0.8438,0.8123,洗碗机手册|洗碗机手册|电钻手册,,low
+200,功能键盘的保修政策通常包含哪些内容，又不包含哪些内容？,功能键盘的保修政策通常包含哪些内容|又不包含哪些内容,,0.0,5,0.8164,0.7776,冰箱手册|功能键盘手册|冰箱手册,,low
+201,功能键盘的保修政策中，损害赔偿的除外责任或免责声明通常是什么？,功能键盘的保修政策中|损害赔偿的除外责任或免责声明通常是什么,,0.0,5,0.7402,0.7234,相机手册|洗碗机手册|相机手册,,low
+202,如何设置功能键盘？,如何设置功能键盘,,0.0,5,0.8782,0.8752,洗碗机手册|洗碗机手册|洗碗机手册,,low
+203,如何拆卸和重新安装功能键盘的轴体？,如何拆卸和重新安装功能键盘的轴体,,0.0,5,0.8826,0.8284,洗碗机手册|洗碗机手册|洗碗机手册,,low
+204,如何将功能键盘搭配CAM软件使用？,如何将功能键盘搭配|cam|软件使用,,0.0,5,0.7603,0.7525,洗碗机手册|洗碗机手册|洗碗机手册,,low
+205,如何在硬件模式下使用功能键盘？,如何在硬件模式下使用功能键盘,,0.0,5,0.9482,0.8801,摩托艇手册|空调手册|空调手册,,low
+206,如何安装儿童电动摩托车的挡泥板？,如何安装儿童电动摩托车的挡泥板,,0.0,5,0.9827,0.9367,洗碗机手册|洗碗机手册|洗碗机手册,,low
+207,如何安装儿童电动摩托车的前轮？,如何安装儿童电动摩托车的前轮,,0.0,5,0.845,0.8156,洗碗机手册|洗碗机手册|洗碗机手册,,low
+208,如何为蓝牙激光鼠标安装电池？,如何为蓝牙激光鼠标安装电池,,0.0,5,0.8129,0.7808,相机手册|相机手册|相机手册,,low
+209,如何为蓝牙激光鼠标安装WIDCOMM蓝牙驱动程序？,如何为蓝牙激光鼠标安装|widcomm|蓝牙驱动程序,,0.0,5,0.8193,0.7987,相机手册|相机手册|相机手册,,low
+210,如何为蓝牙激光鼠标卸载WIDCOMM蓝牙驱动程序？,如何为蓝牙激光鼠标卸载|widcomm|蓝牙驱动程序,,0.0,5,0.8892,0.8549,相机手册|相机手册|相机手册,,low
+211,如何在Windows系统中为蓝牙激光鼠标设置快速配对？,如何在|windows|系统中为蓝牙激光鼠标设置快速配对,,0.0,5,0.7711,0.7141,健身追踪器手册|摩托艇手册|蓝牙激光鼠标手册,,low
+212,如何通过WIDCOMM蓝牙驱动程序为蓝牙激光鼠标设置配对？,如何通过|widcomm|蓝牙驱动程序为蓝牙激光鼠标设置配对,,0.0,5,0.8656,0.8437,相机手册|相机手册|相机手册,,low
+213,如何查看蓝牙激光鼠标的电量状态？,如何查看蓝牙激光鼠标的电量状态,,0.0,5,0.8545,0.8117,相机手册|相机手册|VR头显手册,,low
+214,如何首次为蓝牙激光鼠标使用该驱动程序？,如何首次为蓝牙激光鼠标使用该驱动程序,,0.0,5,0.9013,0.8586,相机手册|相机手册|相机手册,,low
+215,如何将蓝牙激光鼠标与其他人机接口设备相连接？,如何将蓝牙激光鼠标与其他人机接口设备相连接,,0.0,5,0.826,0.7776,相机手册|相机手册|相机手册,,low
+216,如何拆卸烤箱门？,如何拆卸烤箱门,,0.0,5,0.8719,0.8703,洗碗机手册|洗碗机手册|相机手册,,low
+217,如何安装烤箱门？,如何安装烤箱门,,0.0,5,0.935,0.886,VR头显手册|洗碗机手册|洗碗机手册,,low
+218,如何移动烤箱的顶部加热元件（仅限部分型号）？,如何移动烤箱的顶部加热元件|仅限部分型号,,0.0,5,0.717,0.7081,空调手册|空调手册|空调手册,,low
+219,如何更换烤箱的后部灯（如有）？,如何更换烤箱的后部灯|如有,,0.0,5,0.7455,0.6804,水泵手册|冰箱手册|空调手册,,low
+220,如何使用烤箱的接油盘？,如何使用烤箱的接油盘,,0.0,5,0.9427,0.8002,洗碗机手册|洗碗机手册|冰箱手册,,low
+221,如何清洁烤箱外部？,如何清洁烤箱外部,,0.0,5,0.9162,0.7087,冰箱手册|电钻手册|冰箱手册,,low
+222,如何使用烤箱的烤架？,如何使用烤箱的烤架,,0.0,5,0.9443,0.7971,洗碗机手册|洗碗机手册|冰箱手册,,low
+223,烤箱的催化侧面板有什么作用？,烤箱的催化侧面板有什么作用,,0.0,5,0.7295,0.6657,冰箱手册|冰箱手册|洗碗机手册,,low
+224,如何使用烤箱的烤盘？,如何使用烤箱的烤盘,,0.0,5,0.9443,0.7971,洗碗机手册|洗碗机手册|冰箱手册,,low
+225,如何使用烤箱的烤架烤盘套装？,如何使用烤箱的烤架烤盘套装,,0.0,5,0.9402,0.8147,洗碗机手册|洗碗机手册|冰箱手册,,low
+226,如何使用烤箱的油脂过滤器？,如何使用烤箱的油脂过滤器,,0.0,5,0.942,0.811,洗碗机手册|洗碗机手册|冰箱手册,,low
+227,如何使用烤箱的滑动搁架？,如何使用烤箱的滑动搁架,,0.0,5,0.9416,0.8047,洗碗机手册|洗碗机手册|冰箱手册,,low
+228,如何为混合即时相机安装肩带？,如何为混合即时相机安装肩带,,0.0,5,0.7342,0.732,相机手册|相机手册|相机手册,,low
+229,如何为混合即时相机装入电池？,如何为混合即时相机装入电池,,0.0,5,0.7911,0.7905,相机手册|相机手册|相机手册,,low
+230,如何为混合即时相机装入相纸盒？,如何为混合即时相机装入相纸盒,,0.0,5,0.8476,0.846,相机手册|相机手册|相机手册,,low
+231,如何为混合即时相机取出用完的相纸盒？,如何为混合即时相机取出用完的相纸盒,,0.0,5,0.7296,0.7283,相机手册|相机手册|相机手册,,low
+232,如何设置混合即时相机的自动打印模式？,如何设置混合即时相机的自动打印模式,,0.0,5,0.7505,0.7486,相机手册|相机手册|相机手册,,low
+233,如何设置混合即时相机的手动打印模式（初始设置）？,如何设置混合即时相机的手动打印模式|初始设置,,0.0,5,0.6878,0.6789,健身追踪器手册|健身追踪器手册|相机手册,,low
+234,如何使用混合即时相机拍摄照片？,如何使用混合即时相机拍摄照片,,0.0,5,0.7907,0.7895,相机手册|相机手册|相机手册,,low
+241,"If this is the first time to use airfryer, What should I do before first use?",if|this|is|the|first|time|to|use|airfryer|what|should|i|do|before,,0.0,0,0.0,0.0,,,empty
+242,How to find the approval label of emission control certificate of the boat?,how|to|find|the|approval|label|of|emission|control|certificate|boat,,0.0,0,0.0,0.0,,,empty
+243,How do I use the battery conversion feature before sailing?,how|do|i|use|the|battery|conversion|feature|before|sailing,,0.0,0,0.0,0.0,,,empty
+244,How the ship steers?,how|the|ship|steers,,0.0,0,0.0,0.0,,,empty
+245,What should I do if face over temperature warning on the boat?,what|should|i|do|if|face|over|temperature|warning|on|the|boat,,0.0,0,0.0,0.0,,,empty
+246,"If I want to listen to music on my phone, how do I turn on the sound system?",if|i|want|to|listen|music|on|my|phone|how|do|turn|the|sound|system,,0.0,0,0.0,0.0,,,empty
+247,How do I use the storage compartments if I want to store wet items while on board?,how|do|i|use|the|storage|compartments|if|want|to|store|wet|items|while|on|board,,0.0,0,0.0,0.0,,,empty
+248,How to open the battery compartment when manipulating the boat?,how|to|open|the|battery|compartment|when|manipulating|boat,,0.0,0,0.0,0.0,,,empty
+249,How to install an anchor light while the boat is moving?,how|to|install|an|anchor|light|while|the|boat|is|moving,,0.0,0,0.0,0.0,,,empty
+250,How do I use the jet wash function to clean the boat after using it?,how|do|i|use|the|jet|wash|function|to|clean|boat|after|using|it,,0.0,0,0.0,0.0,,,empty
+251,How do I turn on or off the water supply button on my boat?,how|do|i|turn|on|or|off|the|water|supply|button|my|boat,,0.0,0,0.0,0.0,,,empty
+252,How to remove the bimini top of the boat?,how|to|remove|the|bimini|top|of|boat,,0.0,0,0.0,0.0,,,empty
+253,How do I install a bimini top on my boat if I want to use the canopy?,how|do|i|install|a|bimini|top|on|my|boat|if|want|to|use|the|canopy,,0.0,0,0.0,0.0,,,empty
+254,How to store the bimini top in the upright position of the boat?,how|to|store|the|bimini|top|in|upright|position|of|boat,,0.0,0,0.0,0.0,,,empty
+255,"When I am sailing, how do I check the engine oil level to ensure continued sailing?",when|i|am|sailing|how|do|check|the|engine|oil|level|to|ensure|continued,,0.0,0,0.0,0.0,,,empty
+256,How can I use the bilge pump of the boat?,how|can|i|use|the|bilge|pump|of|boat,,0.0,0,0.0,0.0,,,empty
+257,How to perform anchor light switch check while sailing?,how|to|perform|anchor|light|switch|check|while|sailing,,0.0,0,0.0,0.0,,,empty
+258,"When I want to start the boat, how do I turn on the boat's engine to get the machine started?",when|i|want|to|start|the|boat|how|do|turn|on|s|engine|get|machine|started,,0.0,0,0.0,0.0,,,empty
+259,How do I turn a boat while sailing?,how|do|i|turn|a|boat|while|sailing,,0.0,0,0.0,0.0,,,empty
+260,How to operate the boat cross wakes and swells?,how|to|operate|the|boat|cross|wakes|and|swells,,0.0,0,0.0,0.0,,,empty
+261,How do I load the boat when the cruise is over?,how|do|i|load|the|boat|when|cruise|is|over,,0.0,0,0.0,0.0,,,empty
+262,How to flush the cooling system of the boat?,how|to|flush|the|cooling|system|of|boat,,0.0,0,0.0,0.0,,,empty
+263,How to replace the fuse of the boat?,how|to|replace|the|fuse|of|boat,,0.0,0,0.0,0.0,,,empty
+264,How to check the engine oil level of the boat?,how|to|check|the|engine|oil|level|of|boat,,0.0,0,0.0,0.0,,,empty
+265,How to use the energy saving mode of a coffee machine?,how|to|use|the|energy|saving|mode|of|a|coffee|machine,,0.0,0,0.0,0.0,,,empty
+266,How to change the default setting of the energy saving mode?,how|to|change|the|default|setting|of|energy|saving|mode,,0.0,0,0.0,0.0,,,empty
+267,How to program the water valume of a coffee machine?,how|to|program|the|water|valume|of|a|coffee|machine,,0.0,0,0.0,0.0,,,empty
+268,"How should I do if I want to empty the system before not in use, for frost protection or before maintenance?",how|should|i|do|if|want|to|empty|the|system|before|not|in|use|for|frost|protection|or|maintenance,,0.0,0,0.0,0.0,,,empty
+269,How should I do if I want to reset to factory settings of the coffee machine?,how|should|i|do|if|want|to|reset|factory|settings|of|the|coffee|machine,,0.0,0,0.0,0.0,,,empty
+270,How should I clean my coffee maker after I use it so that it can last longer?,how|should|i|clean|my|coffee|maker|after|use|it|so|that|can|last|longer,,0.0,0,0.0,0.0,,,empty
+271,How to open the swim platform of the boat\uff1f,how|to|open|the|swim|platform|of|boat|uff1f,,0.0,0,0.0,0.0,,,empty
+272,How to open the livewell and add water on the boat?,how|to|open|the|livewell|and|add|water|on|boat,,0.0,0,0.0,0.0,,,empty
+273,What is the maintenance setting screen of the boat controller?,what|is|the|maintenance|setting|screen|of|boat|controller,,0.0,0,0.0,0.0,,,empty
+274,"In the boat's steering position, what does the factory reset screen show?",in|the|boat|s|steering|position|what|does|factory|reset|screen|show,,0.0,0,0.0,0.0,,,empty
+275,What is the trip screen shown?,what|is|the|trip|screen|shown,,0.0,0,0.0,0.0,,,empty
+276,"When I am ready to sail, if everything is ready, how do I make the boat move forward?",when|i|am|ready|to|sail|if|everything|is|how|do|make|the|boat|move|forward,,0.0,0,0.0,0.0,,,empty
+277,How do I check the boat's steering system when I'm driving it?,how|do|i|check|the|boat|s|steering|system|when|m|driving|it,,0.0,0,0.0,0.0,,,empty
+278,How should fire extinguishers be stored on board and where should they be placed?,how|should|fire|extinguishers|be|stored|on|board|and|where|they|placed,,0.0,0,0.0,0.0,,,empty
+279,How to care the throttle-cable of the boat?,how|to|care|the|throttle-cable|of|boat,,0.0,0,0.0,0.0,,,empty
+280,How do I charge the camera battery when I'm not using it?,how|do|i|charge|the|camera|battery|when|m|not|using|it,,0.0,0,0.0,0.0,,,empty
+281,How to install the camera battery when another one is power off?,how|to|install|the|camera|battery|when|another|one|is|power|off,,0.0,0,0.0,0.0,,,empty
+282,How do I connect the camera using a household power socket?,how|do|i|connect|the|camera|using|a|household|power|socket,,0.0,0,0.0,0.0,,,empty
+283,How do you mount the lens of a camera when preparing for photography?,how|do|you|mount|the|lens|of|a|camera|when|preparing|for|photography,,0.0,0,0.0,0.0,,,empty
+284,How do you install the card into a camera before photography?,how|do|you|install|the|card|into|a|camera|before|photography,,0.0,0,0.0,0.0,,,empty
+285,Have you ever wondered how to remove the camera shutter button? Understanding this process can enhance your photography experience and allow for quick repairs!,have|you|ever|wondered|how|to|remove|the|camera|shutter|button|understanding|this|process|can|enhance|your|photography|experience|and|allow|for|quick|repairs,,0.0,0,0.0,0.0,,,empty
+286,How do I replace the camera's date/time battery?,how|do|i|replace|the|camera|s|date|time|battery,,0.0,0,0.0,0.0,,,empty
+287,How to set an off-center subject mode of a camera?,how|to|set|an|off-center|subject|mode|of|a|camera,,0.0,0,0.0,0.0,,,empty
+288,"Before taking photos, we need to know How to use the eyepiece cover of the camera?",before|taking|photos|we|need|to|know|how|use|the|eyepiece|cover|of|camera,,0.0,0,0.0,0.0,,,empty
+289,How do I select the AF Mode when before taking a picture?,how|do|i|select|the|af|mode|when|before|taking|a|picture,,0.0,0,0.0,0.0,,,empty
+290,"How to set the camera model to \""P\"" model?",how|to|set|the|camera|model|p,,0.0,0,0.0,0.0,,,empty
+291,"After or during shooting, how can I view the camera image on TV for better clarity?",after|or|during|shooting|how|can|i|view|the|camera|image|on|tv|for|better|clarity,,0.0,0,0.0,0.0,,,empty
+292,How can I delete a single image from my camera if I don't like the photo?,how|can|i|delete|a|single|image|from|my|camera|if|don|t|like|the|photo,,0.0,0,0.0,0.0,,,empty
+293,How can I erase all images from my camera if I don't like these.,how|can|i|erase|all|images|from|my|camera|if|don|t|like|these,,0.0,0,0.0,0.0,,,empty
+294,How do I print photos using the camera's CP direct method after taking them?,how|do|i|print|photos|using|the|camera|s|cp|direct|method|after|taking|them,,0.0,0,0.0,0.0,,,empty
+295,How do you set up the camera to fine tune the model when using it?,how|do|you|set|up|the|camera|to|fine|tune|model|when|using|it,,0.0,0,0.0,0.0,,,empty
+296,"After the earphones is in my hand, what are the components I should have?",after|the|earphones|is|in|my|hand|what|are|components|i|should|have,,0.0,0,0.0,0.0,,,empty
+297,"If the case battery of earphones is low, how can I charge is?",if|the|case|battery|of|earphones|is|low|how|can|i|charge,,0.0,0,0.0,0.0,,,empty
+298,"When bluetooth are pairing and connecting, what scenarios I might encounter?",when|bluetooth|are|pairing|and|connecting|what|scenarios|i|might|encounter,,0.0,0,0.0,0.0,,,empty
+299,What are the two main controling functions of earphones?,what|are|the|two|main|controling|functions|of|earphones,,0.0,0,0.0,0.0,,,empty
+300,"Besides the two main controling functions, what other functions of the earphones can I operate?",besides|the|two|main|controling|functions|what|other|of|earphones|can|i|operate,,0.0,0,0.0,0.0,,,empty
+301,"If my earphones won't work, how can I reset them?",if|my|earphones|won|t|work|how|can|i|reset|them,,0.0,0,0.0,0.0,,,empty
+302,What are the maintenance and care policies of the earphones?,what|are|the|maintenance|and|care|policies|of|earphones,,0.0,0,0.0,0.0,,,empty
+303,"From three different observing views, what buttons and interfaces should this eReader have?",from|three|different|observing|views|what|buttons|and|interfaces|should|this|ereader|have,,0.0,0,0.0,0.0,,,empty
+304,What do the functions of Main Menu and Browser History of the eReader can do?,what|do|the|functions|of|main|menu|and|browser|history|ereader|can,,0.0,0,0.0,0.0,,,empty
+305,"When in eBook mode of this eReader, what will happen after pressing \""M\"" botton?",when|in|ebook|mode|of|this|ereader|what|will|happen|after|pressing|m|botton,,0.0,0,0.0,0.0,,,empty
+306,"If I want to listen to music using this eReader, what should I do?",if|i|want|to|listen|music|using|this|ereader|what|should|do,,0.0,0,0.0,0.0,,,empty
+307,"Can this eReader record voice? If so, how do I operate this feature?",can|this|ereader|record|voice|if|so|how|do|i|operate|feature,,0.0,0,0.0,0.0,,,empty
+308,"I can't find the way to play video using this eReader, can you tell me how to do that?",i|can|t|find|the|way|to|play|video|using|this|ereader|you|tell|me|how|do|that,,0.0,0,0.0,0.0,,,empty
+309,"Can this eReader become a photo viewer? If so, how do I operate this feature?",can|this|ereader|become|a|photo|viewer|if|so|how|do|i|operate|feature,,0.0,0,0.0,0.0,,,empty
+310,"When using this eReader, what kinds of trobles might I encounter and how to solve them?",when|using|this|ereader|what|kinds|of|trobles|might|i|encounter|and|how|to|solve|them,,0.0,0,0.0,0.0,,,empty
+311,"When connecting the fax, hwo can I properly finish the procedure?",when|connecting|the|fax|hwo|can|i|properly|finish|procedure,,0.0,0,0.0,0.0,,,empty
+312,What should I pay attention to in order to ensure my safety when using this fax?,what|should|i|pay|attention|to|in|order|ensure|my|safety|when|using|this|fax,,0.0,0,0.0,0.0,,,empty
+313,"In order to keep your fingers safe, what should you pay attention to about the fax?",in|order|to|keep|your|fingers|safe|what|should|you|pay|attention|about|the|fax,,0.0,0,0.0,0.0,,,empty
+314,I'm about to move this fax. Is there anything I should pay attention to?,i|m|about|to|move|this|fax|is|there|anything|should|pay|attention,,0.0,0,0.0,0.0,,,empty
+315,"Are caution or warning labels inside the fax important? If not, can I remove them?",are|caution|or|warning|labels|inside|the|fax|important|if|not|can|i|remove|them,,0.0,0,0.0,0.0,,,empty
+316,"If I'm in Canada, is there any statement of the fax vailable in my country?",if|i|m|in|canada|is|there|any|statement|of|the|fax|vailable|my|country,,0.0,0,0.0,0.0,,,empty
+317,"When using the grill, how to connect regulator to the LP Tank?",when|using|the|grill|how|to|connect|regulator|lp|tank,,0.0,0,0.0,0.0,,,empty
+318,"To engure my safety when using the grill, how to do leak testing on valves, hose and regulatol?",to|engure|my|safety|when|using|the|grill|how|do|leak|testing|on|valves|hose|and|regulatol,,0.0,0,0.0,0.0,,,empty
+319,What should I pay attention to on ablout indirect cooking using the grill?,what|should|i|pay|attention|to|on|ablout|indirect|cooking|using|the|grill,,0.0,0,0.0,0.0,,,empty
+320,What are the first three steps in assembly process of the grill according to the manual?,what|are|the|first|three|steps|in|assembly|process|of|grill|according|to|manual,,0.0,0,0.0,0.0,,,empty
+321,Can you share me some safety tips using the grill?,can|you|share|me|some|safety|tips|using|the|grill,,0.0,0,0.0,0.0,,,empty
+322,What are identification numbers of my jetski? I don't understand that.,what|are|identification|numbers|of|my|jetski|i|don|t|understand|that,,0.0,0,0.0,0.0,,,empty
+323,I've heard that my jetski has cruising limitations. Please introduce them.,i|ve|heard|that|my|jetski|has|cruising|limitations|please|introduce|them,,0.0,0,0.0,0.0,,,empty
+324,I've heard that my jetski has cruising limitations. Please introduce them.,i|ve|heard|that|my|jetski|has|cruising|limitations|please|introduce|them,,0.0,0,0.0,0.0,,,empty
+325,What are the operation requirements if I want to use my jetski?,what|are|the|operation|requirements|if|i|want|to|use|my|jetski,,0.0,0,0.0,0.0,,,empty
+326,What kinds of watercraft characteristics does my jetski have?,what|kinds|of|watercraft|characteristics|does|my|jetski|have,,0.0,0,0.0,0.0,,,empty
+327,"When encountering vessels driving my jetski, what rules should I obey?",when|encountering|vessels|driving|my|jetski|what|rules|should|i|obey,,0.0,0,0.0,0.0,,,empty
+328,"I'd like to remove and install the seat of my jetski, what steps should I follow?",i|d|like|to|remove|and|install|the|seat|of|my|jetski|what|steps|should|follow,,0.0,0,0.0,0.0,,,empty
+329,"In daily usage, how to open and close the hood of the jetski?",in|daily|usage|how|to|open|and|close|the|hood|of|jetski,,0.0,0,0.0,0.0,,,empty
+330,I've noticed that there are two different kinds of filler caps on the jetski. How to remove them?,i|ve|noticed|that|there|are|two|different|kinds|of|filler|caps|on|the|jetski|how|to|remove|them,,0.0,0,0.0,0.0,,,empty
+331,"If I need to manipulate the two kinds of engine switches on the jetski, what should I do?",if|i|need|to|manipulate|the|two|kinds|of|engine|switches|on|jetski|what|should|do,,0.0,0,0.0,0.0,,,empty
+332,"There are two kinds of levers on the jetski, how to manipulate them?",there|are|two|kinds|of|levers|on|the|jetski|how|to|manipulate|them,,0.0,0,0.0,0.0,,,empty
+333,What information should I obtain about Quick Shift Trim System (QSTS) selector when using my jetski,what|information|should|i|obtain|about|quick|shift|trim|system|qsts|selector|when|using|my|jetski,,0.0,0,0.0,0.0,,,empty
+334,What do fuel meter and hour meter on my jetski do?,what|do|fuel|meter|and|hour|on|my|jetski,,0.0,0,0.0,0.0,,,empty
+344,Inspecting fuel filter and fuel tank of my jetski is important. How to do that?,inspecting|fuel|filter|and|tank|of|my|jetski|is|important|how|to|do|that,,0.0,0,0.0,0.0,,,empty
+345,How to adjust the adjustable sponson of my jetski if needed?,how|to|adjust|the|adjustable|sponson|of|my|jetski|if|needed,,0.0,0,0.0,0.0,,,empty
+346,The intake and impeller of my jetski are dirty. How to clean them?,the|intake|and|impeller|of|my|jetski|are|dirty|how|to|clean|them,,0.0,0,0.0,0.0,,,empty
+347,How to start my jetski in different situations?,how|to|start|my|jetski|in|different|situations,,0.0,0,0.0,0.0,,,empty
+348,What are basic steps to board my jetski with a passenger in deep water?,what|are|basic|steps|to|board|my|jetski|with|a|passenger|in|deep|water,,0.0,0,0.0,0.0,,,empty
+349,"If it is difficult to balance the jetski at a stand still, what should I do?",if|it|is|difficult|to|balance|the|jetski|at|a|stand|still|what|should|i|do,,0.0,0,0.0,0.0,,,empty
+350,What is the max load of the jetski?,what|is|the|max|load|of|jetski,,0.0,0,0.0,0.0,,,empty
+351,What is the overview of the base station of a landline?,what|is|the|overview|of|base|station|a|landline,,0.0,0,0.0,0.0,,,empty
+352,How can you connect the base station of a landline?,how|can|you|connect|the|base|station|of|a|landline,,0.0,0,0.0,0.0,,,empty
+353,How can you install the handset of a landline?,how|can|you|install|the|handset|of|a|landline,,0.0,0,0.0,0.0,,,empty
+354,How can you check the battery level of a landline?,how|can|you|check|the|battery|level|of|a|landline,,0.0,0,0.0,0.0,,,empty
+355,What can you do if your landline is in searching status?,what|can|you|do|if|your|landline|is|in|searching|status,,0.0,0,0.0,0.0,,,empty
+356,How can you know about the current status with different LED indicator behavior on a landline?,how|can|you|know|about|the|current|status|with|different|led|indicator|behavior|on|a|landline,,0.0,0,0.0,0.0,,,empty
+357,How can you know about the current status with different LED indicator behavior on the base station of a landline?,how|can|you|know|about|the|current|status|with|different|led|indicator|behavior|on|base|station|of|a|landline,,0.0,0,0.0,0.0,,,empty
+358,How can you lower the roll bar of a lawn mower?,how|can|you|lower|the|roll|bar|of|a|lawn|mower,,0.0,0,0.0,0.0,,,empty
+359,How can you adjust the rear-shock assemblies for a lawn mower with suspension system only?,how|can|you|adjust|the|rear-shock|assemblies|for|a|lawn|mower|with|suspension|system|only,,0.0,0,0.0,0.0,,,empty
+360,How can you adjust the height of cut for a lawn mower with an electric deck lift?,how|can|you|adjust|the|height|of|cut|for|a|lawn|mower|with|an|electric|deck|lift,,0.0,0,0.0,0.0,,,empty
+361,How can you load a lawn mower?,how|can|you|load|a|lawn|mower,,0.0,0,0.0,0.0,,,empty
+362,How can you unload a lawn mower?,how|can|you|unload|a|lawn|mower,,0.0,0,0.0,0.0,,,empty
+363,How can you change the engine oil of a lawn mower?,how|can|you|change|the|engine|oil|of|a|lawn|mower,,0.0,0,0.0,0.0,,,empty
+364,How can you remove the filters of a lawn mower?,how|can|you|remove|the|filters|of|a|lawn|mower,,0.0,0,0.0,0.0,,,empty
+365,How can you replace the mower belt of a lawn mower?,how|can|you|replace|the|mower|belt|of|a|lawn,,0.0,0,0.0,0.0,,,empty
+366,How can you set up control of a over-the-range microwave?,how|can|you|set|up|control|of|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+367,How can you set the light timer of a over-the-range microwave?,how|can|you|set|the|light|timer|of|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+368,How can you set yout favorite recipe with a over-the-range microwave?,how|can|you|set|yout|favorite|recipe|with|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+369,How can you reheat food with a over-the-range microwave?,how|can|you|reheat|food|with|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+370,How can you use auto defrost of a over-the-range microwave?,how|can|you|use|auto|defrost|of|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+371,How can you clean the grease filter of a over-the-range microwave?,how|can|you|clean|the|grease|filter|of|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+372,How can you replace the charcoal filter of a over-the-range microwave?,how|can|you|replace|the|charcoal|filter|of|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+373,How can you replace the oven light of a over-the-range microwave?,how|can|you|replace|the|oven|light|of|a|over-the-range|microwave,,0.0,0,0.0,0.0,,,empty
+374,How can you set the PCI Express 3.0 x16 slots of a motherboard?,how|can|you|set|the|pci|express|3|0|x16|slots|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+375,How can you set the jumpers of a motherboard?,how|can|you|set|the|jumpers|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+376,How can you set the rear panel connectors of a motherboard?,how|can|you|set|the|rear|panel|connectors|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+377,How can you set the onboard LED of a motherboard?,how|can|you|set|the|onboard|led|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+378,How can you update the BIOS file of a motherboard?,how|can|you|update|the|bios|file|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+379,How can you create RAID of a motherboard?,how|can|you|create|raid|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+380,How can you use SATA ODD & USB devices to install an operating system for a motherboard?,how|can|you|use|sata|odd|usb|devices|to|install|an|operating|system|for|a|motherboard,,0.0,0,0.0,0.0,,,empty
+381,How can you secure the motherboard to the chassis?,how|can|you|secure|the|motherboard|to|chassis,,0.0,0,0.0,0.0,,,empty
+382,How can you prepare the installation of Central Processing Unit (CPU) for a motherboard?,how|can|you|prepare|the|installation|of|central|processing|unit|cpu|for|a|motherboard,,0.0,0,0.0,0.0,,,empty
+383,How do you know about system memory of a motherboard?,how|do|you|know|about|system|memory|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+384,How do you know about Serial port connector (10-1 pin COM) of a motherboard?,how|do|you|know|about|serial|port|connector|10-1|pin|com|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+385,How do you know about TPM connector (14-1 pin TPM) for a motherboard?,how|do|you|know|about|tpm|connector|14-1|pin|for|a|motherboard,,0.0,0,0.0,0.0,,,empty
+386,How do you know about Thermal sensor connector (2-pin T_SENSOR) of a motherboard?,how|do|you|know|about|thermal|sensor|connector|2-pin|t_sensor|of|a|motherboard,,0.0,0,0.0,0.0,,,empty
+387,How can you set quick release for a multi-use pressure cooker and air fryer?,how|can|you|set|quick|release|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+388,How can you set pressure cooking lid for a multi-use pressure cooker and air fryer?,how|can|you|set|pressure|cooking|lid|for|a|multi-use|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+389,How can you set float valve for a multi-use pressure cooker and air fryer?,how|can|you|set|float|valve|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+390,What do you know about anti-block shield for a multi-use pressure cooker and air fryer?,what|do|you|know|about|anti-block|shield|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+391,How can you set steam release valve for a multi-use pressure cooker and air fryer?,how|can|you|set|steam|release|valve|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+392,How can you set anti-block shield for a multi-use pressure cooker and air fryer?,how|can|you|set|anti-block|shield|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+393,How can you set silicone cap and float valve for a multi-use pressure cooker and air fryer?,how|can|you|set|silicone|cap|and|float|valve|for|a|multi-use|pressure|cooker|air|fryer,,0.0,0,0.0,0.0,,,empty
+394,How can you Install the condensation collector for a multi-use pressure cooker and air fryer?,how|can|you|install|the|condensation|collector|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+395,How can you install the sealing ring for a multi-use pressure cooker and air fryer?,how|can|you|install|the|sealing|ring|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+396,How can you remove silicone sealing ring for a multi-use pressure cooker and air fryer?,how|can|you|remove|silicone|sealing|ring|for|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+397,What do you know about sealing ring of a multi-use pressure cooker and air fryer?,what|do|you|know|about|sealing|ring|of|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+398,What do you know about steam release valve of a multi-use pressure cooker and air fryer?,what|do|you|know|about|steam|release|valve|of|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+399,What do you know about quick release button of a multi-use pressure cooker and air fryer?,what|do|you|know|about|quick|release|button|of|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+400,What can you know about natural release(NRorNPR) of a multi-use pressure cooker and air fryer?,what|can|you|know|about|natural|release|nrornpr|of|a|multi-use|pressure|cooker|and|air|fryer,,0.0,0,0.0,0.0,,,empty
+401,What is the robot anatomy of the vacuum?,what|is|the|robot|anatomy|of|vacuum,,0.0,0,0.0,0.0,,,empty
+402,What are the two primary modes available on a vacuum cleaner that can be used to tailor its performance to meet different home cleaning needs?,what|are|the|two|primary|modes|available|on|a|vacuum|cleaner|that|can|be|used|to|tailor|its|performance|meet|different|home|cleaning|needs,,0.0,0,0.0,0.0,,,empty
+403,What is the proper procedure for emptying the vacuum cleaner's bin?,what|is|the|proper|procedure|for|emptying|vacuum|cleaner|s|bin,,0.0,0,0.0,0.0,,,empty
+404,What is the correct procedure for cleaning the vacuum cleaner filter?,what|is|the|correct|procedure|for|cleaning|vacuum|cleaner|filter,,0.0,0,0.0,0.0,,,empty
+405,What is the proper procedure for cleaning the full bin sensors on a vacuum cleaner?,what|is|the|proper|procedure|for|cleaning|full|bin|sensors|on|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+406,What is the correct procedure for cleaning the extractors (brushes or rollers) on a vacuum cleaner?,what|is|the|correct|procedure|for|cleaning|extractors|brushes|or|rollers|on|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+407,What is the proper procedure for cleaning the sensors and charging contacts on a vacuum cleaner?,what|is|the|proper|procedure|for|cleaning|sensors|and|charging|contacts|on|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+408,What is the correct procedure for positioning the home base of a vacuum cleaner?,what|is|the|correct|procedure|for|positioning|home|base|of|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+409,What is the proper procedure for cleaning the front caster wheel of a vacuum cleaner?,what|is|the|proper|procedure|for|cleaning|front|caster|wheel|of|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+410,What is the correct procedure for cleaning the side brush of a vacuum cleaner?,what|is|the|correct|procedure|for|cleaning|side|brush|of|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+411,What is the function of the dual-mode virtual wall barrier on a vacuum cleaner?,what|is|the|function|of|dual-mode|virtual|wall|barrier|on|a|vacuum|cleaner,,0.0,0,0.0,0.0,,,empty
+412,What are the troubleshooting steps if the vacuum indicates a problem?,what|are|the|troubleshooting|steps|if|vacuum|indicates|a|problem,,0.0,0,0.0,0.0,,,empty
+413,What are the detailed instructions for T-rail mounting of a camera or equipment?,what|are|the|detailed|instructions|for|t-rail|mounting|of|a|camera|or|equipment,,0.0,0,0.0,0.0,,,empty
+414,What are the steps to power the camera?,what|are|the|steps|to|power|camera,,0.0,0,0.0,0.0,,,empty
+415,What is the proper way to use the brake lever and brake button?,what|is|the|proper|way|to|use|brake|lever|and|button,,0.0,0,0.0,0.0,,,empty
+416,What are the essential preparation checks to perform before using a snowmobile?,what|are|the|essential|preparation|checks|to|perform|before|using|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+417,What are the detailed steps to start the engine of a snowmobile?,what|are|the|detailed|steps|to|start|engine|of|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+418,What is a V-BeltHolder?,what|is|a|v-beltholder,,0.0,0,0.0,0.0,,,empty
+419,What are the steps to adjust the throttle cable on a snowmobile?,what|are|the|steps|to|adjust|throttle|cable|on|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+420,What is the proper way to use the steering system on a snowmobile?,what|is|the|proper|way|to|use|steering|system|on|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+421,What are the correct steps to turn using a snowmobile?,what|are|the|correct|steps|to|turn|using|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+422,What are the proper techniques for riding uphill on a snowmobile?,what|are|the|proper|techniques|for|riding|uphill|on|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+423,What are the proper techniques for riding downhill on a snowmobile?,what|are|the|proper|techniques|for|riding|downhill|on|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+424,What are the correct techniques for crossing a slope on a snowmobile?,what|are|the|correct|techniques|for|crossing|a|slope|on|snowmobile,,0.0,0,0.0,0.0,,,empty
+425,What are the steps to inspect the spark plug on a snowmobile?,what|are|the|steps|to|inspect|spark|plug|on|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+426,What are the steps to clean a snowmobile?,what|are|the|steps|to|clean|a|snowmobile,,0.0,0,0.0,0.0,,,empty
+427,What are the best methods for memorizing communication channels using a manual program?,what|are|the|best|methods|for|memorizing|communication|channels|using|a|manual|program,,0.0,0,0.0,0.0,,,empty
+428,What are the common causes and conditions that can lead to poor reception in television or radio signals?,what|are|the|common|causes|and|conditions|that|can|lead|to|poor|reception|in|television|or|radio|signals,,0.0,0,0.0,0.0,,,empty
+429,What are the steps to enable and customize captions and on-screen text settings on a television?,what|are|the|steps|to|enable|and|customize|captions|on-screen|text|settings|on|a|television,,0.0,0,0.0,0.0,,,empty
+430,What are the steps to properly connect and set up an outdoor antenna for optimal signal reception?,what|are|the|steps|to|properly|connect|and|set|up|an|outdoor|antenna|for|optimal|signal|reception,,0.0,0,0.0,0.0,,,empty
+431,What are the steps to properly connect a DVD player to a television or audio system for optimal performance?,what|are|the|steps|to|properly|connect|a|dvd|player|television|or|audio|system|for|optimal|performance,,0.0,0,0.0,0.0,,,empty
+432,What are the key factors to check when troubleshooting technical issues or malfunctions?,what|are|the|key|factors|to|check|when|troubleshooting|technical|issues|or|malfunctions,,0.0,0,0.0,0.0,,,empty
+433,What safety precautions should be followed to ensure safe operation during this process?,what|safety|precautions|should|be|followed|to|ensure|safe|operation|during|this|process,,0.0,0,0.0,0.0,,,empty
+434,How do you adjust the intensity settings on an electric toothbrush to suit your oral care needs?,how|do|you|adjust|the|intensity|settings|on|an|electric|toothbrush|to|suit|your|oral|care|needs,,0.0,0,0.0,0.0,,,empty
+435,What are the steps to activate and deactivate the various features on an electric toothbrush for customized usage?,what|are|the|steps|to|activate|and|deactivate|various|features|on|an|electric|toothbrush|for|customized|usage,,0.0,0,0.0,0.0,,,empty
+436,"What are the steps to charge an electric toothbrush when it is inside a travel case, and how do you ensure it charges properly?",what|are|the|steps|to|charge|an|electric|toothbrush|when|it|is|inside|a|travel|case|and|how|do|you|ensure|charges|properly,,0.0,0,0.0,0.0,,,empty

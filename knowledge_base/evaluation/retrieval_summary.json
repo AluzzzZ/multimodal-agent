@@ -1,0 +1,235 @@
+{
+  "question_count": 400,
+  "detail_row_count": 1065,
+  "top_k": 5,
+  "use_rerank": false,
+  "avg_top1_score": 0.4189,
+  "median_top1_score": 0.6709,
+  "avg_keyword_coverage": 0.0062,
+  "hit_quality_distribution": {
+    "medium": 5,
+    "low": 207,
+    "high": 1,
+    "empty": 187
+  },
+  "top_manuals": [
+    [
+      "洗碗机手册",
+      232
+    ],
+    [
+      "空调手册",
+      150
+    ],
+    [
+      "健身追踪器手册",
+      144
+    ],
+    [
+      "冰箱手册",
+      104
+    ],
+    [
+      "相机手册",
+      99
+    ],
+    [
+      "发电机手册",
+      71
+    ],
+    [
+      "水泵手册",
+      68
+    ],
+    [
+      "电钻手册",
+      46
+    ],
+    [
+      "VR头显手册",
+      43
+    ],
+    [
+      "摩托艇手册",
+      41
+    ],
+    [
+      "功能键盘手册",
+      23
+    ],
+    [
+      "儿童电动摩托车手册",
+      11
+    ],
+    [
+      "烤箱手册",
+      10
+    ],
+    [
+      "健身单车手册",
+      7
+    ],
+    [
+      "可编程温控器手册",
+      6
+    ],
+    [
+      "蓝牙激光鼠标手册",
+      5
+    ],
+    [
+      "蒸汽清洁机手册",
+      3
+    ],
+    [
+      "吹风机手册",
+      1
+    ],
+    [
+      "空气净化器手册",
+      1
+    ]
+  ],
+  "low_hit_examples": [
+    {
+      "id": "2",
+      "question": "我想咨询一下，你们的售后维修服务范围是什么？\n如果是人为损坏的，能维修吗？维修费用怎么算？",
+      "top1_score": 0.8448,
+      "keyword_coverage": 0.0,
+      "top_manuals": "冰箱手册|摩托艇手册|空调手册"
+    },
+    {
+      "id": "3",
+      "question": "请问你们的商品能开发票吗？发票类型是什么？\n多久能收到呢？",
+      "top1_score": 0.6758,
+      "keyword_coverage": 0.0,
+      "top_manuals": "摩托艇手册|VR头显手册|相机手册"
+    },
+    {
+      "id": "4",
+      "question": "我收到商品后，发现包装破损了，怎么办？\n影响商品退换货吗？",
+      "top1_score": 0.7224,
+      "keyword_coverage": 0.0,
+      "top_manuals": "冰箱手册|VR头显手册|摩托艇手册"
+    },
+    {
+      "id": "6",
+      "question": "我想了解一下你们的退款政策，退款多久能到账？\n信用卡会原路返回吗？",
+      "top1_score": 0.7266,
+      "keyword_coverage": 0.0,
+      "top_manuals": "相机手册|空调手册|相机手册"
+    },
+    {
+      "id": "7",
+      "question": "我收到的商品和图片不一样，颜色偏差很大，我要投诉！",
+      "top1_score": 0.6617,
+      "keyword_coverage": 0.0,
+      "top_manuals": "空调手册|水泵手册|洗碗机手册"
+    },
+    {
+      "id": "8",
+      "question": "你们的商品存在虚假宣传，宣传的功能和实际不一样，我要投诉！",
+      "top1_score": 0.6289,
+      "keyword_coverage": 0.0,
+      "top_manuals": "空调手册|水泵手册|空调手册"
+    },
+    {
+      "id": "9",
+      "question": "我收到的商品少了一件，联系客服说会补发，但是过了一周还没补发！",
+      "top1_score": 0.6481,
+      "keyword_coverage": 0.0,
+      "top_manuals": "水泵手册|健身追踪器手册|相机手册"
+    },
+    {
+      "id": "10",
+      "question": "你们的售后维修服务太差了，我送修的商品，过了半个月还没修好！",
+      "top1_score": 0.668,
+      "keyword_coverage": 0.0,
+      "top_manuals": "洗碗机手册|洗碗机手册|电钻手册"
+    },
+    {
+      "id": "11",
+      "question": "你们的商品保质期有问题，我收到的商品还有1个月就过期了！",
+      "top1_score": 0.7552,
+      "keyword_coverage": 0.0,
+      "top_manuals": "VR头显手册|电钻手册|冰箱手册"
+    },
+    {
+      "id": "12",
+      "question": "你们的快递员态度特别差，送货时还辱骂我，我要投诉！",
+      "top1_score": 0.748,
+      "keyword_coverage": 0.0,
+      "top_manuals": "洗碗机手册|洗碗机手册|功能键盘手册"
+    },
+    {
+      "id": "13",
+      "question": "你们的商品存在质量问题，我使用了一次就坏了，联系客服没人管！",
+      "top1_score": 0.7097,
+      "keyword_coverage": 0.0,
+      "top_manuals": "洗碗机手册|洗碗机手册|冰箱手册"
+    },
+    {
+      "id": "14",
+      "question": "我收到的商品被拆封过，里面还有污渍，明显是二手商品，我要投诉！",
+      "top1_score": 0.7122,
+      "keyword_coverage": 0.0,
+      "top_manuals": "洗碗机手册|洗碗机手册|洗碗机手册"
+    },
+    {
+      "id": "15",
+      "question": "你们的商品宣传是正品，但是我收到后验证是假货，我要投诉！",
+      "top1_score": 0.6785,
+      "keyword_coverage": 0.0,
+      "top_manuals": "相机手册|相机手册|水泵手册"
+    },
+    {
+      "id": "16",
+      "question": "我收到商品后，发现商品有轻微划痕，不影响使用，能申请换货吗？",
+      "top1_score": 0.7901,
+      "keyword_coverage": 0.0,
+      "top_manuals": "冰箱手册|空调手册|功能键盘手册"
+    },
+    {
+      "id": "17",
+      "question": "我想换货，但是原来的商品包装盒丢了，还能换吗？\n需要我额外支付包装费吗？",
+      "top1_score": 0.7292,
+      "keyword_coverage": 0.0,
+      "top_manuals": "冰箱手册|冰箱手册|儿童电动摩托车手册"
+    },
+    {
+      "id": "19",
+      "question": "请问你们的商品能提供纸质版说明书吗？\n电子版在哪里可以找到？",
+      "top1_score": 0.6685,
+      "keyword_coverage": 0.0,
+      "top_manuals": "空调手册|冰箱手册|可编程温控器手册"
+    },
+    {
+      "id": "20",
+      "question": "请问你们家的商品能寄到国外吗？\n运费怎么算？大概需要多久能到？",
+      "top1_score": 0.6982,
+      "keyword_coverage": 0.0,
+      "top_manuals": "摩托艇手册|相机手册|相机手册"
+    },
+    {
+      "id": "21",
+      "question": "我购买的商品，想开发票抬头为公司，需要注意什么？\n抬头写错了，能重新开具吗？",
+      "top1_score": 0.6733,
+      "keyword_coverage": 0.0,
+      "top_manuals": "VR头显手册|冰箱手册|发电机手册"
+    },
+    {
+      "id": "22",
+      "question": "我收到商品后，发现商品有瑕疵，但是已经使用过了，能售后吗？\n换货还是只能维修？",
+      "top1_score": 0.8449,
+      "keyword_coverage": 0.0,
+      "top_manuals": "冰箱手册|功能键盘手册|冰箱手册"
+    },
+    {
+      "id": "23",
+      "question": "我想取消订单，但是订单已经付款了，能全额退款吗？",
+      "top1_score": 0.7278,
+      "keyword_coverage": 0.0,
+      "top_manuals": "冰箱手册|VR头显手册|摩托艇手册"
+    }
+  ]
+}
