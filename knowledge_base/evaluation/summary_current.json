@@ -1,0 +1,329 @@
+{
+  "question_count": 400,
+  "detail_row_count": 1782,
+  "top_k": 8,
+  "use_rerank": true,
+  "retrieval_mode": "dual_route",
+  "avg_top1_score": 0.3762,
+  "median_top1_score": 0.3905,
+  "avg_keyword_coverage": 0.1522,
+  "avg_recall@5": 0.9325,
+  "avg_recall@3": 0.9325,
+  "hit_quality_distribution": {
+    "high": 23,
+    "medium": 20,
+    "low": 330,
+    "empty": 27
+  },
+  "stratified_recall": {
+    "manual": {
+      "count": 320,
+      "recall@5": 0.9156,
+      "recall@3": 0.9156,
+      "avg_top1_score": 0.3274,
+      "avg_keyword_coverage": 0.0452,
+      "high_ratio": 0.0,
+      "medium_ratio": 0.0094,
+      "low_ratio": 0.9062,
+      "empty_ratio": 0.0844
+    },
+    "mixed": {
+      "count": 24,
+      "recall@5": 1.0,
+      "recall@3": 1.0,
+      "avg_top1_score": 0.4369,
+      "avg_keyword_coverage": 0.2475,
+      "high_ratio": 0.0,
+      "medium_ratio": 0.0833,
+      "low_ratio": 0.9167,
+      "empty_ratio": 0.0
+    },
+    "service": {
+      "count": 56,
+      "recall@5": 1.0,
+      "recall@3": 1.0,
+      "avg_top1_score": 0.6291,
+      "avg_keyword_coverage": 0.7227,
+      "high_ratio": 0.4107,
+      "medium_ratio": 0.2679,
+      "low_ratio": 0.3214,
+      "empty_ratio": 0.0
+    }
+  },
+  "route_source_breakdown": {
+    "manual": {
+      "manual": 1396
+    },
+    "mixed": {
+      "service": 60,
+      "manual": 114
+    },
+    "service": {
+      "service": 212
+    }
+  },
+  "top_manuals": [
+    [
+      "摩托艇手册",
+      224
+    ],
+    [
+      "烤箱手册",
+      152
+    ],
+    [
+      "空调手册",
+      142
+    ],
+    [
+      "发电机手册",
+      125
+    ],
+    [
+      "相机手册",
+      116
+    ],
+    [
+      "健身单车手册",
+      97
+    ],
+    [
+      "洗碗机手册",
+      91
+    ],
+    [
+      "健身追踪器手册",
+      76
+    ],
+    [
+      "吹风机手册",
+      67
+    ],
+    [
+      "空气净化器手册",
+      55
+    ],
+    [
+      "电钻手册",
+      54
+    ],
+    [
+      "冰箱手册",
+      52
+    ],
+    [
+      "可编程温控器手册",
+      51
+    ],
+    [
+      "水泵手册",
+      46
+    ],
+    [
+      "蓝牙激光鼠标手册",
+      43
+    ],
+    [
+      "功能键盘手册",
+      40
+    ],
+    [
+      "VR头显手册",
+      33
+    ],
+    [
+      "蒸汽清洁机手册",
+      20
+    ],
+    [
+      "儿童电动摩托车手册",
+      15
+    ],
+    [
+      "人体工学椅手册",
+      11
+    ]
+  ],
+  "low_hit_examples": [
+    {
+      "id": "11",
+      "question": "你们的商品保质期有问题，我收到的商品还有1个月就过期了！",
+      "top1_score": 0.2687,
+      "keyword_coverage": 0.25,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "13",
+      "question": "你们的商品存在质量问题，我使用了一次就坏了，联系客服没人管！",
+      "top1_score": 0.2473,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "25",
+      "question": "请问你们家支持以旧换新服务吗？",
+      "top1_score": 0.2317,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "26",
+      "question": "请问你们的智能客服能解答哪些问题？\n智能客服解答不了的问题，怎么办？",
+      "top1_score": 0.2186,
+      "keyword_coverage": 0.3333,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "35",
+      "question": "想换成其他款式，能换货吗？",
+      "top1_score": 0.4753,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "36",
+      "question": "请问商品的生产日期是什么时候？",
+      "top1_score": 0.2444,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "40",
+      "question": "我想给商品更换成更大的尺寸，能换吗？\n尺寸差价怎么处理？",
+      "top1_score": 0.4851,
+      "keyword_coverage": 0.3333,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "44",
+      "question": "请问你们的优惠券能用于所有商品吗？",
+      "top1_score": 0.2221,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "49",
+      "question": "我购买的商品包装破损，商品出现损坏，而且快递员拒绝承认是运输问题，同时我已经签收商品，请问还能申请售后吗？",
+      "top1_score": 0.5776,
+      "keyword_coverage": 1.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "55",
+      "question": "我购买的商品，收到后发现商品的颜色和详情页描述的不一致，详情页是深红色，实际收到的是浅红色，而且商品有轻微的异味，想申请换货",
+      "top1_score": 0.5134,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "57",
+      "question": "我购买的商品，快递寄到后，我拆开包装发现商品损坏，但是快递员已经离开，没有当场验货，请问还能申请售后吗？",
+      "top1_score": 0.4961,
+      "keyword_coverage": 0.1667,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "58",
+      "question": "我购买的商品，使用时发现商品的功能和详情页描述的不一致，详情页说支持无线充电，实际不支持，而且商品的续航时间也比描述的短很多，要求退货退款并赔偿，请问可以吗？\",",
+      "top1_score": 0.5331,
+      "keyword_coverage": 1.0,
+      "recall@5": 1.0,
+      "top_manuals": "",
+      "inferred_route": "service"
+    },
+    {
+      "id": "64",
+      "question": "使用吹风机时，人员需要佩戴哪些防护装备？",
+      "top1_score": 0.4372,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "吹风机手册|吹风机手册|吹风机手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "65",
+      "question": "操作吹风机时，人员需要注意哪些安全要点？",
+      "top1_score": 0.414,
+      "keyword_coverage": 0.5,
+      "recall@5": 1.0,
+      "top_manuals": "吹风机手册|吹风机手册|吹风机手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "66",
+      "question": "使用吹风机时，如何调节化油器？",
+      "top1_score": 0.4786,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "吹风机手册|吹风机手册|吹风机手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "67",
+      "question": "吹风机冷机时，该如何启动？",
+      "top1_score": 0.4158,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "吹风机手册|吹风机手册|吹风机手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "68",
+      "question": "吹风机热机时，该如何启动？",
+      "top1_score": 0.4252,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "吹风机手册|吹风机手册|吹风机手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "69",
+      "question": "该如何关闭吹风机？",
+      "top1_score": 0.3693,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "吹风机手册|吹风机手册|吹风机手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "70",
+      "question": "空调的重要组成部件有哪些？",
+      "top1_score": 0.2861,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "空调手册|空调手册|空调手册",
+      "inferred_route": "manual"
+    },
+    {
+      "id": "71",
+      "question": "如何找到空调遥控器的按键？",
+      "top1_score": 0.5047,
+      "keyword_coverage": 0.0,
+      "recall@5": 1.0,
+      "top_manuals": "空调手册|空调手册|空调手册",
+      "inferred_route": "manual"
+    }
+  ]
+}

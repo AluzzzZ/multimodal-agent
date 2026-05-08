@@ -40,7 +40,12 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from config import settings, update_settings
+from src.modules.dual_route_retriever import (
+    get_dual_route_retriever,
+    reset_dual_route_retriever,
+)
 from src.modules.rag_engine import get_rag_engine, reset_rag_engine
+from src.utils.text_utils import QueryProcessor
 
 
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "knowledge_base" / "evaluation"
@@ -69,13 +74,80 @@ STOPWORDS = {
 }
 
 
+def tokenize_for_keywords(text: str) -> List[str]:
+    """
+    对问题文本分词，用于关键词提取。
+
+    分词策略（与 QueryProcessor.normalize_query_for_retrieval 保持一致）：
+    - 中文：用 jieba 精确模式分词
+    - 英文：空格 + 连字符 + snake 拆分，再按空格合并
+    - 过滤停用词、单字词、纯数字
+
+    与旧版 re.findall 整串正则相比，分词能正确切分"使用吹风机时人员需要佩戴哪些防护装备"
+    这类长串中文，使 keyword_coverage 指标真实反映命中情况。
+
+    Returns:
+        有效关键词列表（去重、保持顺序）
+    """
+    import re as _re
+
+    try:
+        import jieba
+        jieba.setLogLevel(20)  # 静默 jieba 加载日志
+    except Exception:
+        pass
+
+    text = (text or "").strip().lower()
+    if not text:
+        return []
+
+    # --- 英文分词：空格 + 连字符 + snake 拆分 ---
+    en_parts = _re.split(r"[\s_\-]+", text)
+    en_tokens: List[str] = []
+    for part in en_parts:
+        part = part.strip()
+        if len(part) >= 2:
+            en_tokens.append(part)
+
+    # --- 中文分词：复用 QueryProcessor 的英文处理（短语映射 + 停用词过滤） ---
+    normalized = QueryProcessor.normalize_query_for_retrieval(text)
+    translated = normalized.get("translated_query", "")
+    if not translated:
+        translated = text
+
+    # 用 jieba 对翻译结果分词（已含中文处理）
+    try:
+        zh_tokens = [
+            t.strip()
+            for t in jieba.cut(translated)
+            if t.strip() and len(t.strip()) >= 2
+        ]
+    except Exception:
+        # jieba 不可用时回退：2-gram 中文 + 英文分词结果
+        chinese_segments = _re.findall(r"[\u4e00-\u9fff]{2,}", translated)
+        zh_tokens = []
+        for seg in chinese_segments:
+            for i in range(len(seg) - 1):
+                zh_tokens.append(seg[i : i + 2])
+
+    # --- 合并、去停用词、去重 ---
+    all_tokens: List[str] = []
+    for token in zh_tokens + en_tokens:
+        if token in STOPWORDS:
+            continue
+        all_tokens.append(token)
+
+    # 去重但保持顺序（Python 3.7+ dict 保持插入顺序）
+    return list(dict.fromkeys(all_tokens))
+
+
 @dataclass
 class QuestionRecord:
     """单条公开题记录。"""
     question_id: str
     raw_question: str
     normalized_question: str
-    inferred_route: str = ""  # manual / service / mixed / unknown
+    inferred_route: str = ""  # 关键词启发式路由，仅用于对照
     keywords: List[str] = field(default_factory=list)
 
 
@@ -135,6 +207,19 @@ def parse_args() -> argparse.Namespace:
         "--hybrid",
         action="store_true",
         help="启用 dense+sparse 混合检索",
+    )
+    parser.add_argument(
+        "--score-threshold",
+        type=float,
+        default=None,
+        dest="score_threshold",
+        help="覆盖 rag_score_threshold，控制 pre-rerank 阶段的最小候选分数阈值",
+    )
+    parser.add_argument(
+        "--retrieval-mode",
+        choices=["dual_route", "rag"],
+        default="dual_route",
+        help="评测检索链路：dual_route 走真实 manual/service/mixed 路由，rag 直连基础 RAG 检索",
     )
     return parser.parse_args()
 
@@ -207,15 +292,8 @@ def load_questions(csv_path: Path, limit: int = 0) -> List[QuestionRecord]:
 
 
 def extract_keywords(text: str) -> List[str]:
-    """提取问题文本中的有效关键词（去停用词、去重、保持顺序）。"""
-    candidates = re.findall(r"[A-Za-z0-9_-]+|[\u4e00-\u9fff]{2,}", text or "")
-    keywords: List[str] = []
-    for token in candidates:
-        token = token.strip().lower()
-        if not token or token in STOPWORDS:
-            continue
-        keywords.append(token)
-    return list(dict.fromkeys(keywords))
+    """提取问题文本中的有效关键词（分词、去停用词、去重、保持顺序）。"""
+    return tokenize_for_keywords(text)
 
 
 def clean_preview(text: str, preview_chars: int) -> str:
@@ -250,15 +328,17 @@ def summarize_hit(top1_score: float, coverage: float, result_count: int) -> str:
     return "low"
 
 
-def compute_recall_at_k(
+def compute_proxy_hit_rate(
     results: List[Any],
     k: int,
     min_score: float = 0.0,
 ) -> float:
     """
-    计算 Top-K 召回率。
+    计算代理召回率（proxy hit rate）。
 
-    定义：有至少一条结果且分数 >= min_score 视为"召回成功"。
+    定义：在 Top-K 结果中是否至少有一条分数 >= min_score。
+    注意：这是无金标场景下的代理指标，不等于真实召回率，
+    仅反映"检索是否返回了有效候选"。
     """
     if not results:
         return 0.0
@@ -272,36 +352,79 @@ def run_retrieval(
     use_rerank: bool,
     preview_chars: int,
     enable_hybrid: bool = False,
+    retrieval_mode: str = "dual_route",
+    score_threshold: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     对公开题执行检索并收集评测数据。
 
+    score_threshold 参数用于覆盖 settings.rag_score_threshold，
+    控制 pre-rerank 阶段最小候选分数阈值。若为 None 则使用配置文件默认值。
+
     新增字段：
-    - recall@5: 是否在 Top-5 中有有效召回
-    - recall@top3: 是否在 Top-3 中有有效召回
+    - proxy_hit_rate@5: 代理召回率，是否在 Top-5 中有有效召回（无金标下的代理指标）
+    - proxy_hit_rate@3: 代理召回率，是否在 Top-3 中有有效召回
     - inferred_route: 自动推断的路由类型
     - dense_score / sparse_score: 当启用混合检索时分别记录
+
+    注意：本函数会临时覆盖 settings，调用方确保在 finally 中恢复。
     """
+    # rerank 参数同时影响 rag 模式和 dual_route 模式
     reset_rag_engine()
+    reset_dual_route_retriever()
 
-    # 显式设置混合检索开关：无论 .env 默认值是什么，评测时严格按参数控制
-    update_settings(enable_hybrid_retrieval=enable_hybrid)
+    # 保存原始设置并在 finally 中恢复，避免污染后续评测
+    _saved_settings: Dict[str, Any] = {}
+    _overridden_keys: List[str] = []
+    if enable_hybrid:
+        _saved_settings["enable_hybrid_retrieval"] = settings.enable_hybrid_retrieval
+        _overridden_keys.append("enable_hybrid_retrieval")
+        settings.enable_hybrid_retrieval = enable_hybrid
+    if score_threshold is not None:
+        _saved_settings["rag_score_threshold"] = settings.rag_score_threshold
+        _overridden_keys.append("rag_score_threshold")
+        settings.rag_score_threshold = score_threshold
 
-    rag = get_rag_engine()
-    rag.initialize()
+    try:
+        rag = None
+        dual_route = None
+        if retrieval_mode == "dual_route":
+            dual_route = get_dual_route_retriever()
+            dual_route.initialize()
+        else:
+            rag = get_rag_engine()
+            rag.initialize()
 
-    detail_rows: List[Dict[str, Any]] = []
-    question_rows: List[Dict[str, Any]] = []
-    manual_counter: Counter[str] = Counter()
-    label_counter: Counter[str] = Counter()
-    # 按路由类型分组统计
-    route_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {
-        "total": 0, "high": 0, "medium": 0, "low": 0, "empty": 0,
-        "recalled": 0, "recalled_top3": 0,
-    })
+        detail_rows: List[Dict[str, Any]] = []
+        question_rows: List[Dict[str, Any]] = []
+        manual_counter: Counter[str] = Counter()
+        label_counter: Counter[str] = Counter()
+        # 按路由类型分组统计
+        route_stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {
+            "total": 0, "high": 0, "medium": 0, "low": 0, "empty": 0,
+            "recalled": 0, "recalled_top3": 0,
+        })
 
-    for question in questions:
-        results = rag.retrieve(question.normalized_question, top_k=top_k, use_rerank=use_rerank)
+        for question in questions:
+        route = question.inferred_route
+        route_info: Dict[str, Any] = {}
+        service_result_count = 0
+        manual_result_count = 0
+        if retrieval_mode == "dual_route":
+            assert dual_route is not None
+            routed = dual_route.retrieve(question.normalized_question, use_rerank=use_rerank)
+            route_info = routed.get("route_info", {})
+            results = list(routed.get("results", []))[:top_k]
+            service_result_count = len(routed.get("service_results", []))
+            manual_result_count = len(routed.get("manual_results", []))
+            route = route_info.get("route", route)
+        else:
+            assert rag is not None
+            # 对英文/混合问题做归一化，使 rag 链路与 dual_route 链路行为对齐
+            normalized = QueryProcessor.normalize_query_for_retrieval(question.normalized_question)
+            search_query = normalized["normalized_query"]
+            results = rag.retrieve(search_query, top_k=top_k, use_rerank=use_rerank)
+
         keywords = question.keywords
         joined_context = "\n".join(item.get("content", "") for item in results).lower()
         matched_keywords = [kw for kw in keywords if kw in joined_context]
@@ -321,15 +444,14 @@ def run_retrieval(
         label_counter[label] += 1
 
         # 召回率计算
-        recall_5 = compute_recall_at_k(results, 5)
-        recall_3 = compute_recall_at_k(results, 3)
+        proxy_hit_rate_5 = compute_proxy_hit_rate(results, 5)
+        proxy_hit_rate_3 = compute_proxy_hit_rate(results, 3)
 
         # 更新路由分组统计
-        route = question.inferred_route
         route_stats[route]["total"] += 1
         route_stats[route][label] += 1
-        route_stats[route]["recalled"] += int(recall_5)
-        route_stats[route]["recalled_top3"] += int(recall_3)
+        route_stats[route]["recalled"] += int(proxy_hit_rate_5)
+        route_stats[route]["recalled_top3"] += int(proxy_hit_rate_3)
 
         question_rows.append({
             "id": question.question_id,
@@ -340,9 +462,18 @@ def run_retrieval(
             "result_count": len(results),
             "top1_score": round(top1_score, 4),
             "avg_score": round(avg_score, 4),
-            "recall@5": round(recall_5, 4),
-            "recall@3": round(recall_3, 4),
+            "proxy_hit_rate@5": round(proxy_hit_rate_5, 4),
+            "proxy_hit_rate@3": round(proxy_hit_rate_3, 4),
             "inferred_route": route,
+            "heuristic_route": question.inferred_route,
+            "retrieval_mode": retrieval_mode,
+            "rule_route": route_info.get("rule_route", ""),
+            "strong_rule_route": route_info.get("strong_rule_route", ""),
+            "classifier_label": route_info.get("classifier_label", ""),
+            "classifier_confidence": round(float(route_info.get("classifier_confidence", 0.0)), 4),
+            "classifier_used": route_info.get("classifier_used", False),
+            "service_result_count": service_result_count,
+            "manual_result_count": manual_result_count,
             "top_manuals": "|".join(manual_names[:3]),
             "top_image_ids": "|".join(results[0].get("image_ids", [])[:5]) if results else "",
             "hit_quality": label,
@@ -361,13 +492,28 @@ def run_retrieval(
                 "section_index": metadata.get("section_index", ""),
                 "chunk_index": metadata.get("chunk_index", ""),
                 "doc_id": item.get("doc_id", ""),
+                "route": route,
+                "heuristic_route": question.inferred_route,
+                "result_route": metadata.get("route", route_info.get("route", "")),
                 "image_ids": "|".join(item.get("image_ids", [])),
                 "preview": clean_preview(item.get("content", ""), preview_chars),
             })
 
+        if len(question_rows) % settings.evaluation_progress_interval == 0:
+            print(
+                f"[进度] 已处理 {len(question_rows)}/{len(questions)} 题 | "
+                f"当前平均Top1={round(statistics.fmean(float(r['top1_score']) for r in question_rows), 4)}"
+            )
+
+    finally:
+        # 恢复所有被覆盖的设置，避免污染同进程后续评测
+        for key in _overridden_keys:
+            setattr(settings, key, _saved_settings[key])
+
     summary = build_summary(
         question_rows, detail_rows, manual_counter, label_counter,
-        route_stats, use_rerank, top_k,
+        route_stats, use_rerank, top_k, retrieval_mode,
+        score_threshold=score_threshold,
     )
     return {
         "summary": summary,
@@ -384,12 +530,17 @@ def build_summary(
     route_stats: Dict[str, Dict[str, int]],
     use_rerank: bool,
     top_k: int,
+    retrieval_mode: str,
+    score_threshold: Optional[float] = None,
 ) -> Dict[str, Any]:
     """构建汇总报告，包含分层召回率指标。"""
     top1_scores = [float(row["top1_score"]) for row in question_rows]
     coverages = [float(row["keyword_coverage"]) for row in question_rows]
-    recall5_list = [float(row["recall@5"]) for row in question_rows]
-    recall3_list = [float(row["recall@3"]) for row in question_rows]
+    recall5_list = [float(row["proxy_hit_rate@5"]) for row in question_rows]
+    recall3_list = [float(row["proxy_hit_rate@3"]) for row in question_rows]
+    route_source_stats: Dict[str, Counter[str]] = defaultdict(Counter)
+    for row in detail_rows:
+        route_source_stats[str(row.get("route", ""))][str(row.get("result_route", "")) or "unknown"] += 1
 
     # 低命中示例
     low_examples = [
@@ -398,7 +549,7 @@ def build_summary(
             "question": row["question"],
             "top1_score": row["top1_score"],
             "keyword_coverage": row["keyword_coverage"],
-            "recall@5": row["recall@5"],
+            "proxy_hit_rate@5": row["proxy_hit_rate@5"],
             "top_manuals": row["top_manuals"],
             "inferred_route": row["inferred_route"],
         }
@@ -413,12 +564,12 @@ def build_summary(
         if total > 0:
             stratified_recall[route] = {
                 "count": total,
-                "recall@5": round(statistics.fmean([
-                    float(row["recall@5"]) for row in question_rows
+                "proxy_hit_rate@5": round(statistics.fmean([
+                    float(row["proxy_hit_rate@5"]) for row in question_rows
                     if row["inferred_route"] == route
                 ]), 4),
-                "recall@3": round(statistics.fmean([
-                    float(row["recall@3"]) for row in question_rows
+                "proxy_hit_rate@3": round(statistics.fmean([
+                    float(row["proxy_hit_rate@3"]) for row in question_rows
                     if row["inferred_route"] == route
                 ]), 4),
                 "avg_top1_score": round(statistics.fmean([
@@ -440,16 +591,22 @@ def build_summary(
         "detail_row_count": len(detail_rows),
         "top_k": top_k,
         "use_rerank": use_rerank,
+        "retrieval_mode": retrieval_mode,
+        "score_threshold": score_threshold,
         # 整体指标
         "avg_top1_score": round(statistics.fmean(top1_scores), 4) if top1_scores else 0.0,
         "median_top1_score": round(statistics.median(top1_scores), 4) if top1_scores else 0.0,
         "avg_keyword_coverage": round(statistics.fmean(coverages), 4) if coverages else 0.0,
-        "avg_recall@5": round(statistics.fmean(recall5_list), 4) if recall5_list else 0.0,
-        "avg_recall@3": round(statistics.fmean(recall3_list), 4) if recall3_list else 0.0,
+        "avg_proxy_hit_rate@5": round(statistics.fmean(recall5_list), 4) if recall5_list else 0.0,
+        "avg_proxy_hit_rate@3": round(statistics.fmean(recall3_list), 4) if recall3_list else 0.0,
         # 命中质量分布
         "hit_quality_distribution": dict(label_counter),
         # 分层召回率
         "stratified_recall": stratified_recall,
+        "route_source_breakdown": {
+            route: dict(counter)
+            for route, counter in sorted(route_source_stats.items())
+        },
         # 高频命中手册
         "top_manuals": manual_counter.most_common(20),
         # 低命中示例
@@ -481,8 +638,8 @@ def compare_results(
         "avg_top1_score": safe_diff("avg_top1_score"),
         "median_top1_score": safe_diff("median_top1_score"),
         "avg_keyword_coverage": safe_diff("avg_keyword_coverage"),
-        "avg_recall@5": safe_diff("avg_recall@5"),
-        "avg_recall@3": safe_diff("avg_recall@3"),
+        "avg_proxy_hit_rate@5": safe_diff("avg_proxy_hit_rate@5"),
+        "avg_proxy_hit_rate@3": safe_diff("avg_proxy_hit_rate@3"),
     }
 
     # 分层对比
@@ -491,13 +648,13 @@ def compare_results(
     baseline_routes = baseline_sum.get("stratified_recall", {})
     all_routes = set(current_routes.keys()) | set(baseline_routes.keys())
     for route in sorted(all_routes):
-        c_recall5 = current_routes.get(route, {}).get("recall@5", 0)
-        b_recall5 = baseline_routes.get(route, {}).get("recall@5", 0)
-        c_recall3 = current_routes.get(route, {}).get("recall@3", 0)
-        b_recall3 = baseline_routes.get(route, {}).get("recall@3", 0)
+        c_recall5 = current_routes.get(route, {}).get("proxy_hit_rate@5", 0)
+        b_recall5 = baseline_routes.get(route, {}).get("proxy_hit_rate@5", 0)
+        c_recall3 = current_routes.get(route, {}).get("proxy_hit_rate@3", 0)
+        b_recall3 = baseline_routes.get(route, {}).get("proxy_hit_rate@3", 0)
         comparison["stratified_recall"][route] = {
-            "recall@5": round(c_recall5 - b_recall5, 4),
-            "recall@3": round(c_recall3 - b_recall3, 4),
+            "proxy_hit_rate@5": round(c_recall5 - b_recall5, 4),
+            "proxy_hit_rate@3": round(c_recall3 - b_recall3, 4),
         }
 
     # 命中质量分布对比
@@ -541,11 +698,13 @@ def write_markdown(path: Path, payload: Dict[str, Any], comparison: Optional[Dic
         f"- 明细行数: {summary['detail_row_count']}",
         f"- Top-K: {summary['top_k']}",
         f"- 是否启用 rerank: {summary['use_rerank']}",
+        f"- 检索链路: {summary.get('retrieval_mode', 'rag')}",
+        f"- Pre-rerank 分数阈值: {summary.get('score_threshold', '（默认）')}",
         f"- 平均 Top1 分数: {summary['avg_top1_score']}",
         f"- Top1 分数中位数: {summary['median_top1_score']}",
         f"- 平均关键词覆盖度: {summary['avg_keyword_coverage']}",
-        f"- 平均 Recall@5: {summary['avg_recall@5']}",
-        f"- 平均 Recall@3: {summary['avg_recall@3']}",
+        f"- 平均 Proxy Hit Rate@5: {summary['avg_proxy_hit_rate@5']}",
+        f"- 平均 Proxy Hit Rate@3: {summary['avg_proxy_hit_rate@3']}",
         "",
         "## 命中质量分布",
         "",
@@ -564,9 +723,19 @@ def write_markdown(path: Path, payload: Dict[str, Any], comparison: Optional[Dic
             route_label = route or "unknown"
             lines.append(
                 f"| {route_label} | {stats['count']} | "
-                f"{stats['recall@5']} | {stats['recall@3']} | "
+                f"{stats['proxy_hit_rate@5']} | {stats['proxy_hit_rate@3']} | "
                 f"{stats['avg_top1_score']} | {stats['high_ratio']} | "
                 f"{stats['medium_ratio']} | {stats['low_ratio']} |"
+            )
+
+    route_source_breakdown = summary.get("route_source_breakdown", {})
+    if route_source_breakdown:
+        lines.extend(["", "## 候选来源统计（按最终路由）", ""])
+        lines.append("| 路由 | service 结果数 | manual 结果数 | unknown 结果数 |")
+        lines.append("|------|----------------|---------------|----------------|")
+        for route, counter in route_source_breakdown.items():
+            lines.append(
+                f"| {route or 'unknown'} | {counter.get('service', 0)} | {counter.get('manual', 0)} | {counter.get('unknown', 0)} |"
             )
 
     # AB 对比（若存在）
@@ -590,8 +759,8 @@ def write_markdown(path: Path, payload: Dict[str, Any], comparison: Optional[Dic
             lines.append("| 路由 | Recall@5 变化 | Recall@3 变化 |")
             lines.append("|------|--------------|--------------|")
             for route, delta in comparison["stratified_recall"].items():
-                r5 = delta.get("recall@5", 0)
-                r3 = delta.get("recall@3", 0)
+                r5 = delta.get("proxy_hit_rate@5", 0)
+                r3 = delta.get("proxy_hit_rate@3", 0)
                 sign5 = "+" if r5 > 0 else ""
                 sign3 = "+" if r3 > 0 else ""
                 lines.append(f"| {route} | {sign5}{r5} | {sign3}{r3} |")
@@ -613,7 +782,7 @@ def write_markdown(path: Path, payload: Dict[str, Any], comparison: Optional[Dic
 
     for item in summary["low_hit_examples"]:
         lines.append(
-            f"- id={item['id']} recall@5={item['recall@5']} "
+            f"- id={item['id']} proxy_hit_rate@5={item['proxy_hit_rate@5']} "
             f"top1={item['top1_score']} coverage={item['keyword_coverage']} "
             f"route={item['inferred_route']} manuals={item['top_manuals']} "
             f"question={item['question'].replace(chr(10), ' / ')}"
@@ -628,11 +797,21 @@ def run_single_eval(
     use_rerank: bool,
     preview_chars: int,
     enable_hybrid: bool,
+    retrieval_mode: str,
     output_name: str,
     output_dir: Path,
+    score_threshold: Optional[float] = None,
 ) -> Dict[str, Any]:
     """执行一次评测并写入输出文件。"""
-    payload = run_retrieval(questions, top_k, use_rerank, preview_chars, enable_hybrid)
+    payload = run_retrieval(
+        questions,
+        top_k,
+        use_rerank,
+        preview_chars,
+        enable_hybrid,
+        retrieval_mode=retrieval_mode,
+        score_threshold=score_threshold,
+    )
     write_csv(output_dir / f"questions_{output_name}.csv", payload["questions"])
     write_csv(output_dir / f"details_{output_name}.csv", payload["details"])
     write_json(output_dir / f"summary_{output_name}.json", payload["summary"])
@@ -659,8 +838,10 @@ def main() -> None:
         use_rerank=args.rerank,
         preview_chars=args.preview_chars,
         enable_hybrid=args.hybrid,
+        retrieval_mode=args.retrieval_mode,
         output_name="current",
         output_dir=output_dir,
+        score_threshold=args.score_threshold,
     )
 
     # --- 基线模型评测（AB 对比模式）---
@@ -679,22 +860,30 @@ def main() -> None:
         print(f"[AB对比] 加载基线模型配置: {args.baseline_model}")
         print(f"[AB对比] 基线结果将写入: {baseline_dir}")
 
-        # 临时切换 embedding 模型
+        # 临时切换 embedding 模型，并在 finally 中恢复，避免污染后续评测
         old_model = settings.embedding_model
-        update_settings(embedding_model=args.baseline_model)
+        old_enable_hybrid = settings.enable_hybrid_retrieval
+        old_rag_threshold = settings.rag_score_threshold
+        try:
+            update_settings(embedding_model=args.baseline_model)
 
-        baseline_payload = run_single_eval(
-            questions=questions,
-            top_k=args.top_k,
-            use_rerank=args.rerank,
-            preview_chars=args.preview_chars,
-            enable_hybrid=False,  # 基线模型对比时关闭混合检索
-            output_name="baseline",
-            output_dir=baseline_dir,
-        )
-
-        # 恢复原模型
-        update_settings(embedding_model=old_model)
+            baseline_payload = run_single_eval(
+                questions=questions,
+                top_k=args.top_k,
+                use_rerank=args.rerank,
+                preview_chars=args.preview_chars,
+                enable_hybrid=False,  # 基线模型对比时关闭混合检索
+                retrieval_mode=args.retrieval_mode,
+                output_name="baseline",
+                output_dir=baseline_dir,
+                score_threshold=args.score_threshold,
+            )
+        finally:
+            update_settings(
+                embedding_model=old_model,
+                enable_hybrid_retrieval=old_enable_hybrid,
+                rag_score_threshold=old_rag_threshold,
+            )
 
         # 计算对比
         comparison = compare_results(current_payload, baseline_payload)
@@ -722,7 +911,7 @@ def main() -> None:
     print(f"输出目录: {output_dir}")
     print(f"题目数: {summary['question_count']}")
     print(f"平均 Top1 分数: {summary['avg_top1_score']}")
-    print(f"平均 Recall@5: {summary['avg_recall@5']}")
+    print(f"平均 Proxy Hit Rate@5: {summary['avg_proxy_hit_rate@5']}")
     print(f"平均关键词覆盖度: {summary['avg_keyword_coverage']}")
     print(f"命中质量分布: {summary['hit_quality_distribution']}")
 
@@ -730,8 +919,8 @@ def main() -> None:
         print("\n分层召回率:")
         for route, stats in summary["stratified_recall"].items():
             print(
-                f"  {route}: recall@5={stats['recall@5']} "
-                f"recall@3={stats['recall@3']} "
+                f"  {route}: proxy_hit_rate@5={stats['proxy_hit_rate@5']} "
+                f"proxy_hit_rate@3={stats['proxy_hit_rate@3']} "
                 f"count={stats['count']}"
             )
 

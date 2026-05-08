@@ -172,8 +172,8 @@ def build_analysis_record(row: Dict[str, str], result: Dict[str, Any]) -> Dict[s
     mixed_route_count = sum(1 for item in route_records if item.get("route") == "mixed")
     manual_route_count = sum(1 for item in route_records if item.get("route") == "manual")
     coverage = keyword_coverage(row["question"], answer)
-    # 检测是否使用了fallback兜底回答
-    used_fallback = "抱歉，我暂时没有检索到足够的参考信息" in answer
+    # 检测是否使用了fallback兜底回答（优先使用显式标志）
+    used_fallback = result.get("used_fallback", False)
     # 统计分类器使用情况
     classifier_used_count = sum(1 for item in route_records if item.get("classifier_used"))
     classifier_labels = [item.get("classifier_label") for item in route_records if item.get("classifier_label")]
@@ -347,9 +347,41 @@ def main() -> None:
     generator.initialize()
 
     analysis_rows: List[Dict[str, Any]] = []
-    for row in rows:
-        result = generator.generate(row["question"])
-        analysis_rows.append(build_analysis_record(row, result))
+    error_rows: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        try:
+            result = generator.generate(row["question"])
+            analysis_rows.append(build_analysis_record(row, result))
+        except Exception as e:
+            # 单题失败不影响整批，打一条结构化错误记录后继续
+            error_rows.append({
+                "id": row["id"],
+                "question": row["question"],
+                "answer": f"[生成失败，请人工处理] {type(e).__name__}: {e}",
+                "confidence": 0.0,
+                "dominant_route": "error",
+                "service_route_count": 0,
+                "mixed_route_count": 0,
+                "manual_route_count": 0,
+                "sub_question_count": 0,
+                "answer_chars": 0,
+                "image_count": 0,
+                "has_pic_marker": False,
+                "has_numbered_structure": False,
+                "keyword_coverage": 0.0,
+                "used_fallback": False,
+                "service_like_question": is_service_like_question(row["question"]),
+                "classifier_used_count": 0,
+                "classifier_dominant_label": "",
+                "classifier_avg_confidence": 0.0,
+                "route_records": [],
+                "risk_level": "high",
+            })
+            analysis_rows.append(error_rows[-1])
+            print(f"[警告] 第 {idx + 1}/{len(rows)} 题生成失败，已记录: id={row['id']} ({type(e).__name__}: {e})")
+
+    if error_rows:
+        print(f"[汇总] 共 {len(error_rows)} 题生成失败，已写入 error_rows，请人工处理")
 
     submission_path = output_dir / args.submission_name
     detail_path = output_dir / "public_answer_detail.csv"

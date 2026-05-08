@@ -149,10 +149,10 @@ class KnowledgeBaseBuilder:
     """知识库构建器 - 内存友好版本"""
 
     # 内存优化配置
-    CHUNK_SIZE = 400  # 文本分块大小（字符数）
-    CHUNK_OVERLAP = 80  # 重叠大小（增大以保留更多跨chunk上下文）
+    # CHUNK_SIZE / CHUNK_OVERLAP 从 settings 读取，不使用类级别硬编码
     BATCH_EMBED_SIZE = 16  # 每批嵌入处理的文档数
     GC_INTERVAL = 5  # 每处理N个文件后执行GC
+    SAVE_INTERVAL = 5  # 每处理N个文件后执行一次完整保存，降低I/O频率
     DEFAULT_EXCLUDED_FILES = {"汇总英文手册.txt"}
     # 图片上下文扩展配置
     PIC_CONTEXT_PREFIX = 60  # 图片占位符前保留的字符数
@@ -167,6 +167,11 @@ class KnowledgeBaseBuilder:
         self.include_excluded_files = include_excluded_files
         self.index_dir = PROJECT_ROOT / "knowledge_base" / "index"
         self.progress_file = self.index_dir / "build_progress.json"
+
+        # 从 settings 读取 chunk 参数，消除与 rag_engine 配置的硬编码差异
+        # 统一配置值：CHUNK_SIZE=500, CHUNK_OVERLAP=50
+        self.CHUNK_SIZE = settings.chunk_size
+        self.CHUNK_OVERLAP = settings.chunk_overlap
 
         # RAG引擎延迟初始化
         self._rag_engine = None
@@ -423,7 +428,6 @@ class KnowledgeBaseBuilder:
             if docs:
                 # 增量添加文档
                 self.rag_engine.add_documents(docs, doc_type="text")
-                self.rag_engine.save_knowledge_base()
                 existing_ids.update(doc["doc_id"] for doc in docs)
 
                 new_docs += len(docs)
@@ -441,13 +445,15 @@ class KnowledgeBaseBuilder:
                 }
                 self._save_progress(progress)
 
-            # 定期GC
+            # 定期GC + 批量保存（降低I/O频率，同时保证每5个文件落盘一次）
             if (idx + 1) % self.GC_INTERVAL == 0:
                 gc.collect()
                 logger.debug(f"内存清理完成，当前文档数: {self._total_docs}")
 
-        # 最终保存
-        self.rag_engine.save_knowledge_base()
+            if (idx + 1) % self.SAVE_INTERVAL == 0 or (idx + 1) == self._total_files:
+                self.rag_engine.save_knowledge_base()
+                logger.debug(f"[保存] 已保存知识库（已处理 {idx + 1}/{self._total_files} 个文件）")
+
         gc.collect()
 
         logger.info("=" * 60)
@@ -460,7 +466,11 @@ class KnowledgeBaseBuilder:
         logger.info("=" * 60)
 
     def add_sample_data(self):
-        """添加赛题示例相关的数据"""
+        """添加赛题示例相关的数据（仅用于 debug / 演示，正式知识库不应包含）"""
+        logger.warning(
+            "[add_sample_data] 正在添加赛题示例数据！"
+            "这些数据仅用于 debug / 演示，正式提交前请勿混入正式知识库。"
+        )
         logger.info("添加赛题示例数据...")
 
         self.initialize()

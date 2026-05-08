@@ -3,13 +3,46 @@
 负责解析用户输入的文本和图片，识别用户意图
 """
 
+from __future__ import annotations
+
 import base64
 import io
-from typing import List, Dict, Any, Optional, Tuple
+import re
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional, Tuple
 from PIL import Image
 from loguru import logger
 
 from config import settings
+
+
+# ---------------------------------------------------------------------------
+# 结构化理解结果
+# ---------------------------------------------------------------------------
+
+@dataclass
+class MultimodalUnderstandingResult:
+    """多模态理解结构化输出"""
+    normalized_query: str = ""           # 归一化后的查询文本
+    language: str = "zh"                 # 语言 zh/en
+    image_tags: List[str] = field(default_factory=list)   # 从图片提取的稳定标签
+    product_candidates: List[str] = field(default_factory=list)  # 候选产品名
+    visual_intents: List[str] = field(default_factory=list)     # 视觉意图
+    evidence_type: str = "unknown"       # service_like / manual_like / mixed_like / unknown
+    confidence: float = 0.0
+    notes: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "normalized_query": self.normalized_query,
+            "language": self.language,
+            "image_tags": self.image_tags,
+            "product_candidates": self.product_candidates,
+            "visual_intents": self.visual_intents,
+            "evidence_type": self.evidence_type,
+            "confidence": self.confidence,
+            "notes": self.notes,
+        }
 
 
 class TextParser:
@@ -155,18 +188,20 @@ class TextParser:
 
 class ImageParser:
     """图片解析器"""
-    
+
     def __init__(self):
         self.model = None
         self.processor = None
         self.torch = None
+        self._caption_model = None
+        self._caption_processor = None
         self._initialized = False
-    
+
     def initialize(self):
         """初始化视觉模型"""
         if self._initialized:
             return
-        
+
         try:
             if not settings.enable_vision_model:
                 logger.info("视觉模型已禁用，使用轻量模式运行")
@@ -182,18 +217,17 @@ class ImageParser:
             logger.info(f"加载视觉模型: {settings.vision_model}")
             self.model = CLIPModel.from_pretrained(settings.vision_model)
             self.processor = CLIPProcessor.from_pretrained(settings.vision_model)
-            
+
             if settings.embedding_device == "cuda" and self.torch.cuda.is_available():
                 self.model = self.model.to("cuda")
-            
+
             self.model.eval()
             logger.info("视觉模型加载成功")
         except Exception as e:
             logger.error(f"视觉模型加载失败: {e}")
-            # 使用备用方案
             self.model = None
             self.processor = None
-        
+
         self._initialized = True
     
     def parse_image(self, image_data: str) -> Dict[str, Any]:
@@ -249,44 +283,196 @@ class ImageParser:
                 "description": "图片解析失败"
             }
     
+        try:
+            if not settings.enable_vision_model:
+                logger.info("视觉模型已禁用，使用轻量模式运行")
+                self.model = None
+                self.processor = None
+                self._initialized = True
+                return
+
+            import torch
+            from transformers import CLIPProcessor, CLIPModel
+
+            self.torch = torch
+            logger.info(f"加载视觉模型: {settings.vision_model}")
+            self.model = CLIPModel.from_pretrained(settings.vision_model)
+            self.processor = CLIPProcessor.from_pretrained(settings.vision_model)
+
+            if settings.embedding_device == "cuda" and self.torch.cuda.is_available():
+                self.model = self.model.to("cuda")
+
+            self.model.eval()
+            logger.info("视觉模型加载成功")
+
+            # 延迟加载图片描述模型（caption 模型），避免主链路时延增加
+            self._load_caption_model()
+        except Exception as e:
+            logger.error(f"视觉模型加载失败: {e}")
+            self.model = None
+            self.processor = None
+
+        self._initialized = True
+
+    def _load_caption_model(self):
+        """
+        按需加载轻量 caption 模型，支持两种部署路径：
+        1. Ollama 本地 VLM（如 llava、moondream）
+        2. 托管 VLM API（通过 OpenAI 兼容接口调用）
+        """
+        if not settings.enable_vision_model:
+            return
+
+        try:
+            # 优先尝试 Ollama 本地 VLM（llava 或 moondream）
+            if settings.llm_provider == "local":
+                from ollama import chat
+                self._caption_model = "ollama"
+                logger.info("图片描述使用 Ollama 本地 VLM")
+                return
+        except ImportError:
+            pass
+
+        # 降级：使用 CLIP zero-shot classification 作为场景描述生成
+        # 通过预设的候选标签池做 top-k 标签，不依赖额外模型
+        self._caption_model = "clip_classify"
+        logger.info("图片描述使用 CLIP zero-shot 分类（标签池）")
+
     def describe_image(self, image_data: str) -> str:
         """
-        生成图片描述
-        
+        生成图片描述。
+
+        优先顺序：
+        1. Ollama 本地 VLM（llava/moondream）
+        2. CLIP zero-shot 分类 + 规则生成描述
+        3. 模型未配置时返回降级说明
+
         Args:
             image_data: Base64编码的图片数据
-            
+
         Returns:
             图片的自然语言描述
         """
         if not self._initialized:
             self.initialize()
-        
+
         try:
             if ',' in image_data:
                 image_data = image_data.split(',')[1]
-            
+
             image_bytes = base64.b64decode(image_data)
             image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-            
-            if self.model is None:
-                return "无法生成描述，视觉模型未配置"
-            
-            # 生成描述
-            describe_prompt = "描述这张图片的内容，包括产品类型、外观特征、可能的用途等"
-            inputs = self.processor(text=[describe_prompt], images=image, return_tensors="pt")
-            if settings.embedding_device == "cuda" and self.torch and self.torch.cuda.is_available():
-                inputs = {k: v.to("cuda") for k, v in inputs.items()}
-            
-            with self.torch.no_grad():
-                outputs = self.model(**inputs)
-            
-            # 简单的描述生成（实际应用中可使用更复杂的模型）
-            return f"图片尺寸: {image.size}, 内容分析完成"
-            
+
+            if self.model is None and self._caption_model is None:
+                return "图片已接收，视觉分析待配置"
+
+            # 策略1: Ollama 本地 VLM
+            if self._caption_model == "ollama":
+                return self._caption_via_ollama(image)
+
+            # 策略2: CLIP zero-shot 分类 + 规则生成
+            return self._caption_via_clip_classify(image)
+
         except Exception as e:
             logger.error(f"图片描述生成失败: {e}")
             return "图片描述生成失败"
+
+    def _caption_via_ollama(self, image: Image.Image) -> str:
+        """通过 Ollama 本地 VLM 生成图片描述"""
+        try:
+            from ollama import chat
+            from ollama import Message
+
+            response = chat(
+                model="llava",
+                messages=[
+                    Message(
+                        role="user",
+                        content="请用一句话描述这张图片的内容，包括产品类型、外观特征、可能的用途。回答控制在20个字以内。",
+                        images=[image],
+                    )
+                ],
+                options={"temperature": 0.3, "num_predict": 50},
+            )
+            caption = response.message.content.strip()
+            logger.debug(f"Ollama caption: {caption}")
+            return caption
+        except Exception as e:
+            logger.warning(f"Ollama caption 失败: {e}，降级 CLIP 分类")
+            return self._caption_via_clip_classify(image)
+
+    def _caption_via_clip_classify(self, image: Image.Image) -> str:
+        """
+        通过 CLIP zero-shot 分类生成图片场景描述。
+
+        流程：
+        1. 用预设标签池做 top-k 分类
+        2. 按标签组合生成结构化描述
+        3. 结合图像尺寸信息形成最终 caption
+        """
+        if self.model is None or self.processor is None:
+            return "无法生成描述，视觉模型未配置"
+
+        # 预设标签池：覆盖主要产品类别和使用场景
+        label_pool = [
+            # 产品类型
+            "电钻", "电池充电器", "电动工具", "健身器材", "健身手环",
+            "智能手表", "空气净化器", "冰箱", "空调", "烤箱", "洗碗机",
+            "键盘", "鼠标", "显示器", "相机", "游戏手柄", "耳机",
+            "路由器", "打印机", "投影仪",
+            # 外观特征
+            "金属质感", "塑料外壳", "工业设计", "小型便携", "大型家用",
+            "LCD显示屏", "LED指示灯", "触摸屏", "物理按键",
+            # 使用场景
+            "室内使用", "室外使用", "工作场景", "家居场景", "实验室",
+            # 状态
+            "指示灯亮", "屏幕显示", "充电中", "待机状态", "运行中",
+            # 图示/文档
+            "产品说明书", "电路图", "示意图", "爆炸图", "操作面板",
+        ]
+
+        try:
+            import torch
+            inputs = self.processor(
+                text=label_pool,
+                images=image,
+                return_tensors="pt",
+                padding=True,
+            )
+            if settings.embedding_device == "cuda" and torch.cuda.is_available():
+                inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+            with torch.no_grad():
+                logits_per_image, _ = self.model(**inputs)
+                probs = logits_per_image.softmax(dim=1).cpu().numpy()[0]
+
+            # 取 top-3 标签
+            top_indices = probs.argsort()[-3:][::-1]
+            top_labels = [label_pool[i] for i in top_indices]
+            top_scores = [round(float(probs[i]), 3) for i in top_indices]
+
+            logger.debug(f"CLIP top-3: {list(zip(top_labels, top_scores))}")
+
+            # 按场景 > 产品 > 外观的顺序生成描述
+            scene_labels = {"室内使用", "室外使用", "工作场景", "家居场景", "实验室"}
+            product_labels = set(top_labels) - scene_labels
+            scene = next((l for l in top_labels if l in scene_labels), None)
+
+            if scene:
+                primary = [l for l in top_labels if l not in scene_labels]
+            else:
+                primary = top_labels[:2]
+
+            parts = primary[:2]
+            if scene:
+                parts.append(scene)
+
+            description = "、".join(parts)
+            return description
+
+        except Exception as e:
+            logger.warning(f"CLIP 分类失败: {e}")
+            return "图片内容分析完成"
 
 
 class MultimodalUnderstanding:
@@ -360,6 +546,204 @@ class MultimodalUnderstanding:
         }
         
         return combined
+
+    def analyze(
+        self,
+        question: str,
+        images: Optional[List[str]] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> MultimodalUnderstandingResult:
+        """
+        结构化多模态理解主入口。
+
+        流程：
+        1. 归一化 query（语言检测 + 翻译）
+        2. 提取图片标签（视觉模型或备用规则）
+        3. 推断候选产品
+        4. 推断视觉意图
+        5. 判断证据类型（service_like / manual_like / mixed_like）
+
+        Args:
+            question: 用户问题
+            images: Base64 图片列表（可选）
+            conversation_history: 最近几轮对话（可选）
+
+        Returns:
+            MultimodalUnderstandingResult
+        """
+        if not self._initialized:
+            self.initialize()
+
+        if not question or not question.strip():
+            return MultimodalUnderstandingResult()
+
+        # Step 1: 归一化（只调一次 QueryProcessor，同时拿到 language / translation 信息）
+        from src.utils.text_utils import QueryProcessor
+        norm_result = QueryProcessor.normalize_query_for_retrieval(question)
+        normalized = norm_result["normalized_query"]
+        lang = norm_result["language"]
+
+        # Step 2: 图片标签提取
+        image_tags = self._extract_image_tags(images)
+
+        # Step 3: 推断候选产品
+        product_candidates = self._infer_product_candidates(question, image_tags)
+
+        # Step 4: 推断视觉意图
+        visual_intents = self._infer_visual_intents(question, image_tags)
+
+        # Step 5: 证据类型判断
+        evidence_type = self._infer_evidence_type(question, image_tags, product_candidates)
+
+        return MultimodalUnderstandingResult(
+            normalized_query=normalized,
+            language=lang,
+            image_tags=image_tags,
+            product_candidates=product_candidates,
+            visual_intents=visual_intents,
+            evidence_type=evidence_type,
+            confidence=0.8 if image_tags else 0.6,
+            notes={"images_provided": len(images) if images else 0},
+        )
+
+    # -------------------------------------------------------------------------
+    # 私有方法
+    # -------------------------------------------------------------------------
+
+    def _normalize_query(self, question: str) -> str:
+        """归一化查询文本：委托 QueryProcessor 处理（包含英文归一化/翻译等完整逻辑）"""
+        from src.utils.text_utils import QueryProcessor
+        result = QueryProcessor.normalize_query_for_retrieval(question)
+        return result["normalized_query"]
+
+    def _detect_language(self, text: str) -> str:
+        """简单语言检测"""
+        chinese_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+        if chinese_chars >= 3:
+            return "zh"
+        return "en"
+
+    def _extract_image_tags(self, images: Optional[List[str]]) -> List[str]:
+        """
+        提取图片标签。
+        优先使用视觉模型，模型未配置时用规则兜底。
+        """
+        if not images:
+            return []
+
+        all_tags = []
+        for img in images[:3]:  # 最多处理 3 张
+            try:
+                parsed = self.image_parser.parse_image(img)
+                # 尝试从描述中抽取标签词
+                desc = parsed.get("description", "")
+                tags = self._parse_tags_from_description(desc)
+                all_tags.extend(tags)
+            except Exception as e:
+                logger.warning(f"图片标签提取失败: {e}")
+
+        return list(set(all_tags))[:10]  # 去重，最多 10 个
+
+    def _parse_tags_from_description(self, description: str) -> List[str]:
+        """从图片描述中抽取关键词作为标签"""
+        if not description or description in ("图片已接收，视觉分析待配置", "图片解析失败"):
+            return self._fallback_image_tags(description)
+
+        keywords = re.findall(r"[\u4e00-\u9fff]{2,}", description)
+        # 过滤常见无意义词
+        stop = {"图片", "内容", "分析", "完成", "尺寸", "格式"}
+        return [k for k in keywords if k not in stop][:5]
+
+    def _fallback_image_tags(self, description: str) -> List[str]:
+        """无视觉模型时的备用标签"""
+        tags = []
+        if "DRILL" in description or "电钻" in description:
+            tags.append("电钻")
+        if "refrigerator" in description or "冰箱" in description:
+            tags.append("冰箱")
+        return tags
+
+    def _infer_product_candidates(self, question: str, image_tags: List[str]) -> List[str]:
+        """从问题和图片标签中推断候选产品名"""
+        candidates = set()
+
+        # 从问题中提取产品名（词典匹配）
+        product_aliases = {
+            "VR头显": ["VR头显", "头显", "VR设备"],
+            "人体工学椅": ["人体工学椅", "工学椅", "办公椅"],
+            "健身追踪器": ["健身追踪器", "手环", "表带"],
+            "电钻": ["电钻", "DCB107", "DCB112"],
+            "冰箱": ["冰箱", "冷藏室", "冷冻室"],
+            "空气净化器": ["空气净化器", "净化器"],
+            "功能键盘": ["功能键盘", "键盘"],
+            "发电机": ["发电机", "发动机"],
+            "相机": ["相机", "镜头"],
+            "空调": ["空调", "遥控器"],
+            "烤箱": ["烤箱", "空气炸锅"],
+            "洗碗机": ["洗碗机"],
+            "电钻": ["电钻"],
+        }
+        for product, aliases in product_aliases.items():
+            for alias in aliases:
+                if alias in question:
+                    candidates.add(product)
+                    break
+
+        # 从图片标签中补充
+        for tag in image_tags:
+            for product, aliases in product_aliases.items():
+                if tag in aliases:
+                    candidates.add(product)
+
+        return list(candidates)[:5]
+
+    def _infer_visual_intents(self, question: str, image_tags: List[str]) -> List[str]:
+        """从问题和图片标签中推断视觉意图"""
+        intents = []
+        intent_map = {
+            "查看位置": ["在哪", "位置", "哪里"],
+            "查看指示灯": ["指示灯", "灯", "亮"],
+            "查看按钮": ["按钮", "按键", "操作"],
+            "查看说明书": ["说明书", "手册"],
+            "查看图示": ["图示", "示意图", "图"],
+            "查看型号": ["型号", "哪个"],
+        }
+        for intent, keywords in intent_map.items():
+            if any(kw in question for kw in keywords):
+                intents.append(intent)
+        # 从图片标签补充
+        for tag in image_tags:
+            if any(kw in tag for kw in ["灯", "按钮", "图", "位置"]):
+                if tag not in intents:
+                    intents.append(tag)
+        return intents[:5]
+
+    def _infer_evidence_type(
+        self,
+        question: str,
+        image_tags: List[str],
+        product_candidates: List[str],
+    ) -> str:
+        """判断问题最可能需要哪种证据来源"""
+        service_keywords = [
+            "退款", "退货", "换货", "发票", "保修", "质保", "物流",
+            "运费", "投诉", "赔偿", "补寄", "签收", "优惠券", "发货", "揽收",
+        ]
+        manual_keywords = [
+            "说明书", "指示灯", "按钮", "怎么", "如何", "安装",
+            "使用", "设置", "功能", "模式", "在哪", "哪个",
+        ]
+
+        svc_hits = sum(1 for kw in service_keywords if kw in question)
+        man_hits = sum(1 for kw in manual_keywords if kw in question)
+
+        if svc_hits > man_hits:
+            return "service_like"
+        if man_hits > svc_hits:
+            return "manual_like"
+        if image_tags or product_candidates:
+            return "mixed_like"
+        return "unknown"
 
 
 # 全局实例

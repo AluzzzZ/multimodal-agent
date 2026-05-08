@@ -19,13 +19,16 @@ import re
 from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from loguru import logger
+import numpy as np
+from loguru import logger 
 
 from config import settings
 from .rag_engine import RAGEngine, get_rag_engine
 from .rag_engine import Document
 from .route_classifier import RouteClassifier, get_route_classifier
+from .route_classifier import SERVICE_HINTS, MANUAL_HINTS, MIXED_HINTS
 from src.utils.text_utils import QueryProcessor
+from src.utils.llm_corrector import get_spell_corrector
 
 
 MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
@@ -56,16 +59,17 @@ MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
     "蓝牙激光鼠标手册": ["蓝牙激光鼠标", "蓝牙鼠标", "鼠标"],
 }
 
-SERVICE_ONLY_HINTS: List[str] = [
-    "以旧换新",
-    "优惠券",
-    "智能客服",
-    "人工客服",
-    "客服没人管",
-    "客服不处理",
-    "客服不回复",
-    "联系客服",
-    "解答不了",
+# SERVICE_ONLY_HINTS 收敛至 route_classifier.py，从那里读取
+# 此处仅保留向后兼容别名
+SERVICE_ONLY_HINTS = SERVICE_HINTS
+
+# 型号/代码词检测正则：命中时强烈暗示说明书类问题，建议启用 hybrid 检索
+# 规则：纯大写字母开头 + 数字结尾，或特定格式的型号串
+CODE_WORD_PATTERNS = [
+    re.compile(r'\b[A-Z]{2,}\d+\b'),           # DCB107, AP123, XRS800
+    re.compile(r'\b[A-Z]{2,}[-_]\d+\b'),       # ABC-123, DEF_456
+    re.compile(r'\b\d+[A-Z]{2,}\b'),           # 123ABC, 45DEF
+    re.compile(r'\b[A-Z][a-z]*\d+[A-Z]*\b'),  # XRSmodel1, BatteryX1
 ]
 
 
@@ -81,6 +85,8 @@ class DualRouteRetriever:
         self.manual_keywords: List[str] = []
         self.manual_doc_map: Dict[str, List[Document]] = {}
         self.manual_alias_map: Dict[str, List[str]] = {}
+        self.manual_doc_index_map: Dict[str, int] = {}
+        self.manual_doc_vector_cache: Dict[str, np.ndarray] = {}
         self.route_classifier: Optional[RouteClassifier] = None
         self._initialized = False
 
@@ -166,26 +172,28 @@ class DualRouteRetriever:
 
     def _build_manual_doc_map(self) -> None:
         """
-        Build manual alias mapping and document group index.
+        构建手册别名映射表和文档分组索引。
 
-        Alias mapping is core to manual route retrieval:
-        1. Group all document fragments under each manual by full name
-        2. Maintain product name alias set to identify manual ownership from question text
-        3. Aliases include: preset seed aliases + product name minus "手册" + product name tokens
+        别名映射是手册路由检索的核心基础设施：
+        1. 将所有文档片段按手册名称分组
+        2. 维护产品名称别名集合，用于从用户问题中识别手册归属
+        3. 别名来源：预设种子别名 + 去"手册"后的产品名 + 产品名分词单元
 
-        Aliases sorted by length descending so longer terms match first.
+        别名按长度降序排列，确保优先匹配更长的词汇。
         """
         if not self.rag_engine:
             return
 
         manual_doc_map: Dict[str, List[Document]] = defaultdict(list)
         alias_map: Dict[str, List[str]] = {}
-        for doc in self.rag_engine.knowledge_base.text_documents:
+        doc_index_map: Dict[str, int] = {}
+        for doc_idx, doc in enumerate(self.rag_engine.knowledge_base.text_documents):
             manual_name = str(doc.metadata.get("manual_name", "")).strip()
             route = str(doc.metadata.get("route", "manual")).strip()
             if route != "manual" or not manual_name:
                 continue
             manual_doc_map[manual_name].append(doc)
+            doc_index_map[doc.doc_id] = doc_idx
 
         for manual_name in manual_doc_map:
             aliases = set(MANUAL_ALIAS_SEEDS.get(manual_name, []))
@@ -199,20 +207,60 @@ class DualRouteRetriever:
 
         self.manual_doc_map = dict(manual_doc_map)
         self.manual_alias_map = alias_map
+        self.manual_doc_index_map = doc_index_map
 
-    def route_query(self, query: str, images: Optional[List[str]] = None) -> Dict[str, Any]:
+    def route_query(
+        self,
+        query: str,
+        images: Optional[List[str]] = None,
+        normalized_query: Optional[str] = None,
+        image_tags: Optional[List[str]] = None,
+        product_candidates: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Args:
+            query: 原始查询文本
+            images: Base64 图片列表
+            normalized_query: 已归一化的查询文本（可选，传入则直接使用，不重复 normalize）
+            image_tags: 视觉标签列表
+            product_candidates: 候选产品名列表
+        """
         if not self._initialized:
             self.initialize()
 
-        normalized = QueryProcessor.normalize_query_for_retrieval(query)
-        search_query = normalized["normalized_query"]
+        if normalized_query:
+            search_query = normalized_query
+        else:
+            normalized = QueryProcessor.normalize_query_for_retrieval(query)
+            search_query = normalized["normalized_query"]
+
+        # 拼写纠错：纠正错别字后再进入规则匹配和检索，保护型号词
+        if settings.spell_correction_enabled:
+            original = search_query
+            search_query = get_spell_corrector().correct(search_query)
+            if search_query != original:
+                logger.debug(f"拼写纠错: '{original}' -> '{search_query}'")
+
+        # 合并外部传入的候选手册（来自多模态理解器）
+        if product_candidates:
+            detected = self._detect_manual_candidates(search_query)
+            merged = self._merge_external_manual_candidates(detected, product_candidates)
+        else:
+            merged = None
 
         rule_info = self._compute_rule_route_info(
             search_query=search_query,
             images=images,
+            external_manual_candidates=merged,
         )
         classifier_result = (
-            self.route_classifier.predict(search_query, images=images)
+            self.route_classifier.predict(
+                search_query,
+                images=images,
+                image_tags=image_tags,
+                product_candidates=product_candidates,
+                normalized_query=search_query,
+            )
             if self.route_classifier is not None
             else self._empty_classifier_result()
         )
@@ -226,20 +274,23 @@ class DualRouteRetriever:
             "route": final_route,
             "classifier_label": classifier_result.get("label"),
             "classifier_confidence": classifier_result.get("confidence", 0.0),
+            "classifier_margin": classifier_result.get("margin", 0.0),
             "classifier_probs": classifier_result.get("probs", {}),
             "classifier_used": classifier_used,
             "classifier_fallback_reason": fallback_reason,
             "classifier_available": classifier_result.get("available", False),
             "classifier_input_text": classifier_result.get("input_text", search_query),
-            "language": normalized["language"],
+            "classifier_debug_info": classifier_result.get("debug_info"),
+            "language": normalized["language"] if normalized_query is None else "zh",
             "normalized_query": search_query,
-            "translation_applied": normalized["translation_applied"],
+            "translation_applied": normalized["translation_applied"] if normalized_query is None else False,
         }
 
     def _compute_rule_route_info(
         self,
         search_query: str,
         images: Optional[List[str]] = None,
+        external_manual_candidates: Optional[List[Tuple[str, float]]] = None,
     ) -> Dict[str, Any]:
         """
         基于规则计算路由路由信息（不调用LLM）。
@@ -260,8 +311,13 @@ class DualRouteRetriever:
         Returns:
             包含rule_route, strong_rule_route和各维度得分的字典
         """
+        # 候选手册：优先使用外部传入（来自多模态理解器），兜底再做本地检测
+        if external_manual_candidates is not None:
+            candidate_manuals = external_manual_candidates
+        else:
+            candidate_manuals = self._detect_manual_candidates(search_query)
+
         matched_intents = self._match_service_intents(search_query)
-        candidate_manuals = self._detect_manual_candidates(search_query)
         service_keyword_hits = [kw for kw in self.service_keywords if kw in search_query]
         manual_keyword_hits = [kw for kw in self.manual_keywords if kw in search_query]
         service_only_hits = [kw for kw in SERVICE_ONLY_HINTS if kw in search_query]
@@ -348,15 +404,15 @@ class DualRouteRetriever:
         """
         规则路由与分类器路由的最终裁决。
 
-        裁决策略(优先级从高到低):
-        1. 强规则路由(srong_rule): 由强制路由条件直接决定，不使用分类器
-        2. 高置信分类器: 分类置信度>=high_threshold时直接采纳分类结果
-        3. 低置信分类器: 置信度<low_threshold时回退规则路由
-        4. 分类器与规则一致: 采纳分类器结果，记录使用标记
-        5. 混合路由: 任一方为mixed则升为mixed
-        6. 规则优先service: 有服务意图但无manual线索时走service
-        7. 规则优先manual: 有manual候选或关键词命中时走manual
-        8. 中等置信度分类器: 回退到分类器结果
+        裁决策略（共 9 条，按优先级顺序）:
+        1. 强规则路由(strong_rule): 由强制路由条件直接决定，不使用分类器
+        2. 高置信分类器(>=high_threshold)直接采纳（分类器不可用时回退规则路由）
+        3. 低置信分类器(<low_threshold)回退规则（分类器不可用时回退规则路由）
+        4. 分类器与规则一致且置信度>=0.50时采纳分类器
+        5. 单侧 mixed：仅当其中一方为 mixed、另一方明确时升为 mixed
+        6. 规则强偏好 service(有客服意图且无手册信号)→ service
+        7. 规则强偏好 manual(有手册信号且无客服强意图)→ manual
+        8. 分类器与规则不一致(双方均非 mixed 且无强规则偏好)→ 采纳规则
 
         Args:
             rule_info: 规则路由计算结果
@@ -368,7 +424,7 @@ class DualRouteRetriever:
         rule_route = rule_info["rule_route"]
         strong_rule_route = rule_info.get("strong_rule_route", "")
 
-        # 优先级1: 强规则强制路由（如客服单触达意图）
+        # 优先级1: 强规则强制路由
         if strong_rule_route:
             return strong_rule_route, False, f"strong_rule:{strong_rule_route}"
 
@@ -378,56 +434,80 @@ class DualRouteRetriever:
 
         classifier_label = classifier_result.get("label")
         classifier_confidence = float(classifier_result.get("confidence", 0.0))
+        classifier_margin = float(classifier_result.get("margin", 0.0))
 
-        # 优先级3: 高置信分类器直接采纳
-        if classifier_confidence >= settings.route_classifier_high_threshold:
+        # 优先级3: 高置信（绝对值 >= high_threshold）或高 margin（top1-top2 差距大）
+        # margin 信号在分布模糊时比绝对 confidence 更可靠
+        if (classifier_confidence >= settings.route_classifier_high_threshold
+                or classifier_margin >= settings.route_classifier_high_margin):
             return classifier_label, True, "classifier_high_confidence"
 
-        # 优先级4: 低置信分类器回退规则
-        if classifier_confidence < settings.route_classifier_low_threshold:
+        # 优先级4: 低置信 且 低 margin → 分类器过于模糊，回退规则
+        if (classifier_confidence < settings.route_classifier_low_threshold
+                or classifier_margin < settings.route_classifier_low_margin):
             return rule_route, False, "classifier_low_confidence"
 
-        # 优先级5: 分类器与规则一致时采纳
-        if classifier_label == rule_route:
+        # 优先级5: 分类器与规则一致且置信度和 margin 都足够
+        if classifier_label == rule_route and classifier_confidence >= 0.50 and classifier_margin >= settings.route_classifier_low_margin:
             return classifier_label, True, "classifier_matches_rule"
 
-        # 优先级6: 任一方为mixed则升为mixed
-        if classifier_label == "mixed" or rule_route == "mixed":
-            return "mixed", True, "classifier_rule_promote_mixed"
+        # 优先级6: 单侧 mixed——仅当其中一方为 mixed 而另一方已明确时升为 mixed
+        # 若双方同时为 mixed 则视为"一致"，走优先级 5（已在上方处理）
+        # 若分类器为 mixed 而规则已明确，则升 mixed；若反之，优先信任规则的明确方向
+        if classifier_label == "mixed" and rule_route != "mixed":
+            return "mixed", True, "classifier_mixed_promoted"
+        if rule_route == "mixed" and classifier_label != "mixed":
+            # 分类器有明确 label，优先采纳分类器方向
+            return classifier_label, True, "rule_mixed_classifier_certain"
 
-        # 优先级7: 规则在service场景的偏好
-        if rule_info.get("has_service_policy_intent") and not rule_info.get("manual_candidates") and not rule_info.get("manual_keyword_hits"):
+        # 优先级7: 规则强偏好 service(有客服意图 且 无手册信号)
+        has_service = rule_info.get("has_service_policy_intent")
+        has_manual_signal = rule_info.get("manual_candidates") or rule_info.get("manual_keyword_hits")
+        if has_service and not has_manual_signal:
             return "service", False, "rule_prefers_service_policy"
 
-        # 优先级8: 规则在manual场景的偏好
-        if rule_info.get("manual_candidates") or rule_info.get("manual_keyword_hits"):
+        # 优先级8: 规则强偏好 manual(有手册信号 且 无客服强意图)
+        # 与优先级7互斥，排除 service 强意图场景，避免"退货说明"这类词被误路由到 manual
+        if has_manual_signal and not has_service:
             return "manual", False, "rule_prefers_manual_candidate"
 
-        # 优先级9: 中等置信度回退到分类器
-        return classifier_label, True, "classifier_medium_confidence"
+        # 优先级9: 分类器与规则不一致，双方均非 mixed 且无强规则偏好 → 采纳规则
+        # 分类器模糊时信任规则，规则也比随机猜测强
+        return rule_route, False, "rule_overrides_classifier"
 
     def _empty_classifier_result(self) -> Dict[str, Any]:
         return {
             "available": False,
             "label": None,
             "confidence": 0.0,
+            "margin": 0.0,
             "probs": {},
             "input_text": "",
             "fallback_reason": "classifier_not_initialized",
+            "debug_info": {},
         }
 
     def retrieve(
         self,
         query: str,
         images: Optional[List[str]] = None,
+        normalized_query: Optional[str] = None,
+        image_tags: Optional[List[str]] = None,
+        product_candidates: Optional[List[str]] = None,
+        use_rerank: bool = True,
     ) -> Dict[str, Any]:
         if not self._initialized:
             self.initialize()
 
-        normalized = QueryProcessor.normalize_query_for_retrieval(query)
-        search_query = normalized["normalized_query"]
-        route_info = self.route_query(query, images=images)
+        route_info = self.route_query(
+            query,
+            images=images,
+            normalized_query=normalized_query,
+            image_tags=image_tags,
+            product_candidates=product_candidates,
+        )
         route = route_info["route"]
+        search_query = route_info["normalized_query"]
 
         service_results: List[Dict[str, Any]] = []
         manual_results: List[Dict[str, Any]] = []
@@ -436,7 +516,14 @@ class DualRouteRetriever:
             service_results = self._retrieve_service(search_query, top_k=settings.route_service_top_k)
 
         if route in ("manual", "mixed"):
-            manual_results = self._retrieve_manual(search_query, top_k=settings.route_manual_top_k)
+            # 从 route_info 取已合并的候选手册（来自外部 product_candidates + 内部别名检测）
+            manual_candidates = route_info.get("manual_candidates", [])
+            manual_results = self._retrieve_manual(
+                search_query,
+                top_k=settings.route_manual_top_k,
+                use_rerank=use_rerank,
+                candidate_manuals=manual_candidates,
+            )
 
         merged_results = self._merge_results(route, service_results, manual_results)
         return {
@@ -446,28 +533,96 @@ class DualRouteRetriever:
             "results": merged_results,
         }
 
-    def _retrieve_manual(self, query: str, top_k: int) -> List[Dict[str, Any]]:
-        assert self.rag_engine is not None
-        candidate_manuals = self._detect_manual_candidates(query)
-        broad_results = self.rag_engine.retrieve(
-            query,
-            top_k=max(top_k, settings.route_manual_broad_top_k),
-            use_rerank=False,
-        )
-        broad_by_doc_id = {item["doc_id"]: item for item in broad_results}
+    def _retrieve_manual(
+        self,
+        query: str,
+        top_k: int,
+        use_rerank: bool = False,
+        candidate_manuals: Optional[List[str]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        手册检索主入口。
 
+        Args:
+            query: 检索 query
+            top_k: 返回上限
+            use_rerank: 是否使用 rerank
+            candidate_manuals: 候选手册名列表（来自 route_info，来自 product_candidates +
+                                别名检测的合并结果）。若传入则优先使用，不再重复检测。
+        """
+        assert self.rag_engine is not None
+
+        # 优先使用外部传入的候选手册；若未传入则退回到本地检测
         if candidate_manuals:
+            # candidate_manuals 是手册名列表，需要转换为 (name, score) 格式
+            # 外部传入的候选手册来源于 product_candidates 映射，直接给默认分 1.0
+            detected = [(name, 1.0) for name in candidate_manuals[: settings.route_manual_candidate_top_k]]
+        else:
+            detected = self._detect_manual_candidates(query)
+
+        if detected:
             candidate_docs: List[Document] = []
-            for manual_name, _score in candidate_manuals[: settings.route_manual_candidate_top_k]:
+            for manual_name, _score in detected[: settings.route_manual_candidate_top_k]:
                 candidate_docs.extend(self.manual_doc_map.get(manual_name, []))
+
+            broad_by_doc_id: Dict[str, Dict[str, Any]] = {}
+            if self._should_use_local_manual_recall(detected):
+                broad_by_doc_id = self._local_semantic_recall(
+                    query=query,
+                    candidate_docs=candidate_docs,
+                    top_k=max(top_k, settings.route_manual_broad_top_k),
+                )
+
+                # 对局部召回结果加一次 cross-encoder rerank
+                if broad_by_doc_id and self.rag_engine and hasattr(self.rag_engine, "reranker"):
+                    # 将 dict 列表转换为 List[Tuple[Document, float]] 供 reranker 使用
+                    from .rag_engine import Document
+                    doc_tuples: List[Tuple[Document, float]] = []
+                    for doc_id, item in broad_by_doc_id.items():
+                        # 尝试从索引映射恢复 Document 对象
+                        kb_doc_idx = self.manual_doc_index_map.get(doc_id)
+                        if kb_doc_idx is not None and self.rag_engine.knowledge_base.text_documents:
+                            doc_obj = self.rag_engine.knowledge_base.text_documents[kb_doc_idx]
+                            doc_tuples.append((doc_obj, float(item.get("relevance_score", 0.0))))
+
+                    if doc_tuples:
+                        reranked_tuples = self.rag_engine.reranker.rerank(query, doc_tuples, top_k)
+                        broad_by_doc_id = {item[0].doc_id: {
+                            "content": item[0].content,
+                            "doc_id": item[0].doc_id,
+                            "relevance_score": score,
+                            "metadata": dict(item[0].metadata),
+                            "has_image": "<PIC>" in item[0].content,
+                            "image_ids": re.findall(r'\[([^\]]+)\]', item[0].content),
+                        } for item, score in reranked_tuples}
+                        logger.debug(f"局部召回 rerank: {len(broad_by_doc_id)} 个文档已重排")
+
+            if not broad_by_doc_id:
+                # 型号/代码词存在时启用 hybrid，改善精确匹配的召回效果
+                use_hybrid = self._contains_code_word(query)
+                broad_results = self.rag_engine.retrieve(
+                    query,
+                    top_k=max(top_k, settings.route_manual_broad_top_k),
+                    use_rerank=use_rerank,
+                    use_hybrid=use_hybrid,
+                )
+                broad_by_doc_id = {item["doc_id"]: item for item in broad_results}
+
             reranked = self._rerank_manual_docs(
                 query=query,
                 candidate_docs=candidate_docs,
                 broad_by_doc_id=broad_by_doc_id,
-                candidate_manuals=candidate_manuals,
+                candidate_manuals=detected,
                 top_k=top_k,
             )
         else:
+            use_hybrid = self._contains_code_word(query)
+            broad_results = self.rag_engine.retrieve(
+                query,
+                top_k=max(top_k, settings.route_manual_broad_top_k),
+                use_rerank=use_rerank,
+                use_hybrid=use_hybrid,
+            )
             reranked = self._rerank_manual_results(query, broad_results, top_k=top_k)
 
         for item in reranked:
@@ -497,6 +652,148 @@ class DualRouteRetriever:
 
         scores.sort(key=lambda item: item[1], reverse=True)
         return scores
+
+    def _merge_external_manual_candidates(
+        self,
+        detected_candidates: List[Tuple[str, float]],
+        external_candidates: Optional[List[str]] = None,
+    ) -> List[Tuple[str, float]]:
+        """
+        合并外部传入的候选手册与本地检测结果。
+
+        外部候选（如来自多模态理解器的 product_candidates）
+        与本地别名检测结果合并后去重，按得分降序排列。
+
+        Args:
+            detected_candidates: 本地别名检测结果
+            external_candidates: 外部传入的候选手册名列表
+
+        Returns:
+            合并后的手册候选列表
+        """
+        if not external_candidates:
+            return detected_candidates
+
+        # 构建已有手册名集合
+        existing = {name for name, _ in detected_candidates}
+
+        # 外部候选中不在已有集合里的，加入结果（给默认分 1.0）
+        for name in external_candidates:
+            if name not in existing:
+                detected_candidates.append((name, 1.0))
+                existing.add(name)
+
+        # 重新按得分降序
+        detected_candidates.sort(key=lambda item: item[1], reverse=True)
+        return detected_candidates
+
+    def _contains_code_word(self, text: str) -> bool:
+        """
+        检测文本中是否包含产品型号/代码词。
+
+        代码词（如 DCB107、ABC-123）是说明书中常见的精确匹配单元，
+        检测到后建议在检索时启用 hybrid 模式，以改善 BM25 对精确词项的召回能力。
+
+        Returns:
+            是否检测到代码词
+        """
+        for pattern in CODE_WORD_PATTERNS:
+            if pattern.search(text):
+                logger.debug(f"检测到代码词，启用 hybrid 检索: {pattern.pattern} in '{text}'")
+                return True
+        return False
+
+    def _should_use_local_manual_recall(
+        self,
+        candidate_manuals: Sequence[Tuple[str, float]],
+    ) -> bool:
+        """高置信候选手册优先走局部召回，低置信候选仍保留全库兜底。"""
+        if not settings.route_manual_local_recall_enabled or not candidate_manuals:
+            return False
+        if len(candidate_manuals) > settings.route_manual_local_recall_max_manuals:
+            return False
+
+        top_score = float(candidate_manuals[0][1])
+        second_score = float(candidate_manuals[1][1]) if len(candidate_manuals) > 1 else 0.0
+
+        if top_score >= settings.route_manual_local_recall_strong_score:
+            return True
+        if len(candidate_manuals) == 1 and top_score >= settings.route_manual_local_recall_min_score:
+            return True
+        if (
+            top_score >= settings.route_manual_local_recall_min_score
+            and (top_score - second_score) >= settings.route_manual_local_recall_min_gap
+        ):
+            return True
+        return False
+
+    def _local_semantic_recall(
+        self,
+        query: str,
+        candidate_docs: Sequence[Document],
+        top_k: int,
+    ) -> Dict[str, Dict[str, Any]]:
+        """在候选手册子集内做局部语义召回，减少全库热门手册噪音。"""
+        if not candidate_docs or self.rag_engine is None:
+            return {}
+
+        embedding_model = self.rag_engine.knowledge_base.embedding_model
+        if embedding_model is None:
+            return {}
+
+        query_embedding = embedding_model.encode(
+            [query],
+            batch_size=settings.embedding_batch_size,
+            show_progress_bar=False,
+            convert_to_numpy=True,
+        )
+        query_vector = np.asarray(query_embedding[0], dtype="float32")
+        query_norm = float(np.linalg.norm(query_vector))
+        if query_norm > 0:
+            query_vector = query_vector / query_norm
+
+        rescored: List[Tuple[Dict[str, Any], float]] = []
+        for doc in candidate_docs:
+            doc_vector = self._get_manual_doc_vector(doc)
+            if doc_vector is None:
+                continue
+            semantic_score = float(np.dot(query_vector, doc_vector))
+            item = {
+                "content": doc.content,
+                "doc_id": doc.doc_id,
+                "relevance_score": semantic_score,
+                "metadata": dict(doc.metadata),
+                "has_image": "<PIC>" in doc.content,
+                "image_ids": re.findall(r'\[([^\]]+)\]', doc.content),
+            }
+            rescored.append((item, semantic_score))
+
+        rescored.sort(key=lambda pair: pair[1], reverse=True)
+        return {
+            item["doc_id"]: item
+            for item, _score in rescored[:top_k]
+        }
+
+    def _get_manual_doc_vector(self, doc: Document) -> Optional[np.ndarray]:
+        """从 FAISS 索引中恢复并缓存文档向量，避免重复编码候选文档。"""
+        cached = self.manual_doc_vector_cache.get(doc.doc_id)
+        if cached is not None:
+            return cached
+
+        if self.rag_engine is None or self.rag_engine.knowledge_base.text_embeddings is None:
+            return None
+
+        doc_idx = self.manual_doc_index_map.get(doc.doc_id)
+        if doc_idx is None:
+            return None
+
+        vector = self.rag_engine.knowledge_base.text_embeddings.reconstruct(doc_idx)
+        vector = np.asarray(vector, dtype="float32")
+        norm = float(np.linalg.norm(vector))
+        if norm > 0:
+            vector = vector / norm
+        self.manual_doc_vector_cache[doc.doc_id] = vector
+        return vector
 
     def _should_force_service_route(
         self,
@@ -541,7 +838,8 @@ class DualRouteRetriever:
             rescored.append((item, final_score))
 
         rescored.sort(key=lambda pair: pair[1], reverse=True)
-        return [self._clone_with_score(item, score) for item, score in rescored[:top_k]]
+        reranked = [self._clone_with_score(item, score) for item, score in rescored[:top_k]]
+        return self._apply_diversity_penalty(reranked)
 
     def _rerank_manual_docs(
         self,
@@ -577,7 +875,8 @@ class DualRouteRetriever:
             rescored.append((item, final_score))
 
         rescored.sort(key=lambda pair: pair[1], reverse=True)
-        return [self._clone_with_score(item, score) for item, score in rescored[:top_k]]
+        reranked = [self._clone_with_score(item, score) for item, score in rescored[:top_k]]
+        return self._apply_diversity_penalty(reranked)
 
     def _score_manual_result(
         self,
@@ -640,6 +939,67 @@ class DualRouteRetriever:
             + candidate_scaled * 0.12
             + image_bonus
         )
+
+    # 多样性惩罚系数：Top2/Top3 命中同 section_title 时额外降权
+    _SECTION_DIVERSITY_PENALTY: float = 0.05
+    # 相邻 chunk 惩罚系数：同 section_title + 相邻 chunk_index 时降权
+    _CHUNK_DIVERSITY_PENALTY: float = 0.03
+
+    def _apply_diversity_penalty(
+        self,
+        items: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        对重排后的候选结果做轻量多样性惩罚，防止 top3 全是同一章节的连续块。
+
+        惩罚策略（Top2/Top3 才生效，Top1 不降权）：
+        - 同 section_title：降 _SECTION_DIVERSITY_PENALTY（0.05）
+        - 同 section_title + 相邻 chunk_index：叠加 _CHUNK_DIVERSITY_PENALTY（0.03）
+        - 同手册但不同章节：不做惩罚（保留步骤类问题的上下文连续性）
+
+        这样比 MMR-lite 更轻量，不会压掉真正最相关的连续步骤块。
+
+        Args:
+            items: 已按相关性分数降序排列的检索结果列表
+
+        Returns:
+            多样性惩罚后的结果列表（分数可能下降，顺序不变）
+        """
+        if len(items) <= 1:
+            return items
+
+        result = [dict(item) for item in items]
+
+        for i in range(1, len(result)):
+            if i > 2:  # 只对 Top2/Top3 生效
+                break
+
+            current = result[i]
+            current_meta = current.get("metadata", {})
+            current_section = str(current_meta.get("section_title", "")).strip()
+            current_chunk_idx = int(current_meta.get("chunk_index", -1))
+
+            for j in range(i):
+                prior = result[j]
+                prior_meta = prior.get("metadata", {})
+                prior_section = str(prior_meta.get("section_title", "")).strip()
+                prior_chunk_idx = int(prior_meta.get("chunk_index", -1))
+
+                if current_section != prior_section:
+                    continue
+
+                # 同 section_title 触发基础惩罚
+                penalty = self._SECTION_DIVERSITY_PENALTY
+                # 同 section + 相邻 chunk 叠加额外惩罚
+                if current_chunk_idx >= 0 and prior_chunk_idx >= 0:
+                    if abs(current_chunk_idx - prior_chunk_idx) <= 2:
+                        penalty += self._CHUNK_DIVERSITY_PENALTY
+
+                current["relevance_score"] = round(
+                    max(0.0, current["relevance_score"] - penalty), 6
+                )
+
+        return result
 
     def _clone_with_score(self, item: Dict[str, Any], score: float) -> Dict[str, Any]:
         """

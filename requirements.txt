@@ -1,51 +1,37 @@
-# 多模态客服智能体 - 依赖清单
-# 版本要求: Python 3.10+, 兼容 Python 3.13
+# 多模态客服智能体依赖清单
+# 目标：覆盖当前主链路、离线构建脚本、评测脚本与测试所需依赖。
+# 建议 Python 3.10+
 
-# Web框架
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-python-multipart>=0.0.6
+# Web / API
+fastapi>=0.115,<1
+uvicorn[standard]>=0.30,<1
+python-multipart>=0.0.9,<1
+pydantic>=2.7,<3
+pydantic-settings>=2.2,<3
+typing-extensions>=4.12,<5
 
-# RAG与LLM框架 - 使用较新版本以支持 Python 3.13
-langchain>=0.1.4
-langchain-community>=0.2.0
-langchain-openai>=0.1.0
+# 配置 / 日志
+python-dotenv>=1.0,<2
+loguru>=0.7,<1
 
-# 向量数据库
-faiss-cpu>=1.7.4,<1.14.0
-numpy>=1.26.0
-torch>=2.2.0
-torchvision>=0.17.0
-transformers>=4.36.0
-sentence-transformers>=2.3.0
-opencv-python>=4.9.0
-onnx>=1.16.0
-onnxruntime>=1.18.0
+# OpenAI 兼容接口 / LangChain 封装
+openai>=1.40,<2
+langchain-openai>=0.2,<1
+langchain-community>=0.3,<1
 
-# 图片处理
-pillow>=10.0.0
+# 检索与向量化
+numpy>=1.26,<3
+faiss-cpu>=1.8,<2
+jieba>=0.42,<1
+sentence-transformers>=3.0,<4
+transformers>=4.44,<5
+torch>=2.3,<3
 
-# 文本处理
-nltk>=3.8.1
-jieba>=0.42.1
-chardet>=5.2.0
-
-# API相关
-pydantic>=2.5.3
-pydantic-settings>=2.1.0
-httpx>=0.26.0
-
-# 配置管理
-pyyaml>=6.0.1
-python-dotenv>=1.0.0
-
-# 日志
-loguru>=0.7.2
+# 图片 / 模型推理
+pillow>=10,<12
+onnx>=1.16,<2
+onnxruntime>=1.18,<2
 
 # 测试
-pytest>=7.4.0
-pytest-asyncio>=0.23.0
-
-# 文档生成
-mkdocs>=1.5.0
-mkdocs-material>=9.5.0
+pytest>=8,<9
+pytest-asyncio>=0.24,<1
