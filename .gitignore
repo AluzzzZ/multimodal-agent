@@ -25,6 +25,7 @@ venv/
 env/
 ENV/
 .venv
+.venv*/
 
 # IDE
 .idea/
@@ -33,14 +34,22 @@ ENV/
 *.swo
 *~
 
+# Cursor agent
+agent-tools/
+agent-transcripts/
+
 # Logs
 logs/
 *.log
 
-# Environment variables
+# Environment variables and secrets
 .env
+.env.local
+.env.*.local
 
-# Knowledge base (large files)
+# Knowledge base - large generated files
+knowledge_base/index/
+!knowledge_base/index/.gitkeep
 knowledge_base/raw/
 knowledge_base/images/
 
@@ -49,11 +58,14 @@ knowledge_base/images/
 *.pt
 *.pth
 *.h5
+*.onnx
+models/
 
 # Temporary files
 tmp/
 temp/
 *.tmp
+*.cache
 
 # OS
 .DS_Store
@@ -67,5 +79,15 @@ htmlcov/
 # Docs build
 site/
 
-# 手册原文 - 比赛数据（忽略原始数据文件）
+# Evaluation outputs
+knowledge_base/evaluation/*.json
+knowledge_base/evaluation/*.md
+knowledge_base/evaluation/*.csv
+
+# Temporary / experimental scripts
+scripts/rebuild_kb_temp.py
+scripts/rebuild_kb_transformers.py
+scripts/split_english_manuals.py
+
+# Manual source files (competition data)
 手册/

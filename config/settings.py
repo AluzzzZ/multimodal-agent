@@ -29,11 +29,12 @@ class Settings(BaseSettings):
     llm_base_url: Optional[str] = None
     
     # Embedding配置
-    embedding_backend: str = "sentence_transformer"  # hashing, sentence_transformer
-    embedding_model: str = "BAAI/bge-m3"  # 中文+多语言最优: BAAI/bge-m3; 轻量备选: moka-ai/m3e-base; 旧模型: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+    embedding_backend: str = "transformers"  # hashing, sentence_transformer, transformers
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # transformers后端推荐使用此模型
     embedding_device: str = "cpu"  # cpu, cuda
     embedding_batch_size: int = 8
-    embedding_dim: int = 1024  # BGE-M3为1024维; m3e-base为768维; MiniLM为384维
+    embedding_dim: int = 384  # MiniLM为384维; BGE-M3为1024维; m3e-base为768维
+    max_seq_length: int = 256  # transformers模型的最大序列长度
 
     # 多模态模型配置
     enable_vision_model: bool = False
@@ -68,7 +69,7 @@ class Settings(BaseSettings):
     route_manual_top_k: int = 5
     route_service_keyword_weight: float = 0.35
     route_example_similarity_weight: float = 0.65
-    route_service_threshold: float = 0.38  # 降低阈值，让更多问题走 Service 路
+    route_service_threshold: float = 0.30  # 降低阈值，让更多问题走 Service 路
     route_manual_threshold: float = 0.35  # 提高阈值，减少误路由到 Manual
     route_mixed_gap_threshold: float = 0.08  # 缩小差距，更容易触发 mixed
     mixed_manual_support_threshold: float = 0.68
@@ -81,9 +82,23 @@ class Settings(BaseSettings):
     route_classifier_use_image_tags: bool = True
     route_classifier_feature_dim: int = 512
 
+    # Manual 路由局部召回配置
+    route_manual_local_recall_enabled: bool = True  # 启用局部召回：在候选手册内做向量检索
+    route_manual_local_recall_min_score: float = 0.18  # 局部召回最低触发分数
+    route_manual_local_recall_strong_score: float = 0.72  # 强触发分数（alias得分 >= 此值时跳过 broad 检索）
+    route_manual_local_recall_min_gap: float = 0.30  # 触发 gap（alias 最高分与次高分的最小差值）
+    route_manual_local_recall_max_manuals: int = 3  # 最多参与局部召回的手册数
+
+    # 路由分类器置信度边距（用于宽松/严格模式）
+    route_classifier_low_margin: float = 0.08  # 低置信度边界
+    route_classifier_high_margin: float = 0.12  # 高置信度边界
+
     # 混合检索配置
-    enable_hybrid_retrieval: bool = False  # 启用dense+sparse混合检索（BGE-M3内置支持）
+    enable_hybrid_retrieval: bool = True  # 启用dense+sparse混合检索（BGE-M3内置支持）
     hybrid_sparse_weight: float = 0.3  # sparse分数权重，dense_weight = 1 - sparse_weight
+
+    # 拼写纠错配置（用于 dual_route_retriever 检索前）
+    spell_correction_enabled: bool = False
     
     # 会话配置
     max_conversation_history: int = 10

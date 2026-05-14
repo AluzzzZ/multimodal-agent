@@ -35,3 +35,7 @@ onnxruntime>=1.18,<2
 # 测试
 pytest>=8,<9
 pytest-asyncio>=0.24,<1
+
+# RAGAS 评估
+ragas>=0.4,<1
+datasets>=4.0.0

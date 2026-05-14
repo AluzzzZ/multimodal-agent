@@ -138,6 +138,28 @@ class KnowledgeBase:
 
             return model
 
+        if settings.embedding_backend == "transformers":
+            # 直接使用 transformers 库，避免 sentence_transformers 兼容性问题
+            model_name = settings.embedding_model
+            logger.info(f"加载 transformers 嵌入模型: {model_name}")
+            model = TransformersEmbeddingModel(
+                model_name=model_name,
+                device=settings.embedding_device,
+                batch_size=settings.embedding_batch_size,
+                max_seq_length=settings.max_seq_length
+            )
+
+            # 延迟加载模型，获取实际维度
+            actual_dim = model.get_sentence_embedding_dimension()
+            if actual_dim != settings.embedding_dim:
+                logger.info(
+                    f"模型实际维度 {actual_dim} 与配置 {settings.embedding_dim} 不一致，"
+                    f"自动更新为 {actual_dim}"
+                )
+                settings.embedding_dim = actual_dim
+
+            return model
+
         raise ValueError(f"不支持的 embedding_backend: {settings.embedding_backend}")
 
     def _load_index(self):
@@ -684,11 +706,11 @@ class RAGEngine:
         self._initialized = False
 
     def initialize(self):
-        """初始化RAG引擎"""
+        """初始化RAG引擎（不包括reranker，按需初始化）"""
         self.knowledge_base.initialize()
-        self.reranker.initialize()
+        # Reranker 延迟到第一次检索时才加载，避免构建知识库时占用额外内存
         self._initialized = True
-        logger.info("RAG引擎初始化完成")
+        logger.info("RAG引擎初始化完成（reranker 将延迟加载）")
 
     def retrieve(
         self,
@@ -716,7 +738,7 @@ class RAGEngine:
         # 初步检索：候选数由 rag_rerank_candidate_k 控制
         results = self.knowledge_base.retrieve(query, settings.rag_rerank_candidate_k if use_rerank else top_k)
 
-        # 重排序
+        # 重排序（首次使用时延迟加载reranker）
         if use_rerank:
             results = self.reranker.rerank(query, results, top_k)
 
@@ -892,6 +914,111 @@ class HashingEmbeddingModel:
             return []
 
         return re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", cleaned)
+
+
+class TransformersEmbeddingModel:
+    """
+    基于 transformers 库的嵌入模型。
+
+    直接使用 transformers.AutoModel 进行编码，兼容 sentence-transformers 模型。
+    """
+
+    def __init__(
+        self,
+        model_name: str = "paraphrase-multilingual-MiniLM-L12-v2",
+        device: str = "cpu",
+        batch_size: int = 8,
+        max_seq_length: int = 256
+    ):
+        self.model_name = model_name
+        self.device = device
+        self.batch_size = batch_size
+        self.max_seq_length = max_seq_length
+        self._tokenizer = None
+        self._model = None
+        self._dim = None
+
+    def _lazy_init(self):
+        """延迟加载模型"""
+        if self._model is not None:
+            return
+
+        import os
+        os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+        from transformers import AutoTokenizer, AutoModel
+        import torch
+
+        logger.info(f"加载 transformers 模型: {self.model_name}")
+        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self._model = AutoModel.from_pretrained(self.model_name)
+
+        if self.device == "cuda" and torch.cuda.is_available():
+            self._model = self._model.to("cuda")
+
+        self._model.eval()
+        self._dim = self._model.config.hidden_size
+        logger.info(f"模型加载完成，维度: {self._dim}")
+
+    @staticmethod
+    def _mean_pooling(model_output, attention_mask):
+        """Mean pooling - 取 token embeddings 的加权平均"""
+        import torch
+        token_embeddings = model_output[0]
+        input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+        return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
+    def encode(
+        self,
+        texts: List[str],
+        batch_size: int = None,
+        show_progress_bar: bool = False,
+        convert_to_numpy: bool = True
+    ) -> np.ndarray:
+        """将文本列表编码为嵌入向量"""
+        self._lazy_init()
+
+        import torch
+        from tqdm import tqdm
+
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        all_embeddings = []
+        texts = [t or "" for t in texts]
+
+        iterator = range(0, len(texts), batch_size)
+        if show_progress_bar:
+            iterator = tqdm(iterator, desc="Encoding")
+
+        with torch.no_grad():
+            for i in iterator:
+                batch = texts[i:i + batch_size]
+                encoded = self._tokenizer(
+                    batch,
+                    padding=True,
+                    truncation=True,
+                    max_length=self.max_seq_length,
+                    return_tensors="pt"
+                )
+
+                if self.device == "cuda":
+                    encoded = {k: v.cuda() for k, v in encoded.items()}
+
+                model_output = self._model(**encoded)
+                embeddings = self._mean_pooling(model_output, encoded["attention_mask"])
+
+                if self.device == "cuda":
+                    embeddings = embeddings.cpu()
+
+                all_embeddings.append(embeddings.numpy())
+
+        return np.vstack(all_embeddings).astype("float32")
+
+    def get_sentence_embedding_dimension(self) -> int:
+        """返回嵌入向量维度"""
+        self._lazy_init()
+        return self._dim
 
 
 # 全局实例

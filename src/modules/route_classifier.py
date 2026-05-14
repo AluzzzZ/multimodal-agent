@@ -53,6 +53,7 @@ class RouteClassifierFeatureizer:
         normalized_query: str,
         images: Optional[List[str]] = None,
         image_tags: Optional[List[str]] = None,
+        product_candidates: Optional[List[str]] = None,
     ) -> str:
         """
         构建分类器的输入文本。
@@ -61,11 +62,13 @@ class RouteClassifierFeatureizer:
         - 归一化查询文本（必选）
         - [HAS_IMAGE]标记（当有图片时）
         - [IMAGE_TAGS] + 图片标签列表（当启用且有标签时，最多6个）
+        - [PRODUCT] + 候选手册名（当有产品候选时）
 
         Args:
             normalized_query: 归一化后的查询文本
             images: Base64图片列表
             image_tags: 图片标签列表
+            product_candidates: 候选手册名称列表
 
         Returns:
             分类器输入文本字符串
@@ -75,6 +78,8 @@ class RouteClassifierFeatureizer:
             parts.append("[HAS_IMAGE]")
         if image_tags and settings.route_classifier_use_image_tags:
             parts.append("[IMAGE_TAGS] " + " / ".join([tag.strip() for tag in image_tags if tag.strip()][:6]))
+        if product_candidates:
+            parts.append("[PRODUCT] " + " / ".join(str(c).strip() for c in product_candidates[:4]))
         return " ".join([part for part in parts if part]).strip()
 
     def encode(
@@ -82,6 +87,7 @@ class RouteClassifierFeatureizer:
         normalized_query: str,
         images: Optional[List[str]] = None,
         image_tags: Optional[List[str]] = None,
+        product_candidates: Optional[List[str]] = None,
     ) -> np.ndarray:
         """
         将query编码为固定维度特征向量。
@@ -97,11 +103,17 @@ class RouteClassifierFeatureizer:
             normalized_query: 归一化后的查询文本
             images: Base64图片列表
             image_tags: 图片标签列表
+            product_candidates: 候选手册名称列表
 
         Returns:
             归一化的特征向量
         """
-        input_text = self.build_input_text(normalized_query, images=images, image_tags=image_tags)
+        input_text = self.build_input_text(
+            normalized_query,
+            images=images,
+            image_tags=image_tags,
+            product_candidates=product_candidates,
+        )
         vector = np.zeros(self.dim, dtype=np.float32)
 
         # 哈希嵌入（前dim-32维）
@@ -259,6 +271,7 @@ class RouteClassifier:
         normalized_query: str,
         images: Optional[List[str]] = None,
         image_tags: Optional[List[str]] = None,
+        product_candidates: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """
         对query进行路由分类预测。
@@ -275,6 +288,7 @@ class RouteClassifier:
             normalized_query: 归一化后的查询文本
             images: Base64图片列表
             image_tags: 图片标签列表
+            product_candidates: 候选手册名称列表
 
         Returns:
             包含available/label/confidence/probs的预测结果字典
@@ -286,11 +300,13 @@ class RouteClassifier:
             normalized_query,
             images=images,
             image_tags=image_tags,
+            product_candidates=product_candidates,
         )
         feature_vector = self.featureizer.encode(
             normalized_query,
             images=images,
             image_tags=image_tags,
+            product_candidates=product_candidates,
         )
 
         if not self.ready or self.session is None:
@@ -352,3 +368,9 @@ def reset_route_classifier() -> None:
     """重置全局路由分类器单例，便于测试和阈值扫描。"""
     global _route_classifier
     _route_classifier = None
+
+
+# 模块级导出：将类属性暴露为模块常量，方便 dual_route_retriever 等模块直接导入使用
+SERVICE_HINTS = RouteClassifierFeatureizer.SERVICE_HINTS
+MANUAL_HINTS = RouteClassifierFeatureizer.MANUAL_HINTS
+MIXED_HINTS = RouteClassifierFeatureizer.MIXED_HINTS

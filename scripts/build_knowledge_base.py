@@ -628,6 +628,12 @@ def main():
         help="嵌入后端，hashing更省内存，适合Cursor终端和低内存环境"
     )
     parser.add_argument(
+        "--device",
+        choices=["cpu", "cuda"],
+        default=None,
+        help="计算设备，CUDA不可用时自动回退到CPU"
+    )
+    parser.add_argument(
         "--include-excluded-files",
         action="store_true",
         help="包含默认排除的低相关度手册（如英文汇总手册）"
@@ -635,13 +641,17 @@ def main():
 
     args = parser.parse_args()
 
-    if args.backend:
-        new_settings = {"embedding_backend": args.backend}
-        if args.backend == "hashing":
-            new_settings["enable_vision_model"] = False
-            new_settings["embedding_batch_size"] = min(settings.embedding_batch_size, 8)
+    if args.backend or args.device:
+        new_settings = {}
+        if args.backend:
+            new_settings["embedding_backend"] = args.backend
+            if args.backend == "hashing":
+                new_settings["enable_vision_model"] = False
+                new_settings["embedding_batch_size"] = min(settings.embedding_batch_size, 8)
+        if args.device:
+            new_settings["embedding_device"] = args.device
         update_settings(**new_settings)
-        logger.info(f"本次构建使用 embedding_backend={settings.embedding_backend}")
+        logger.info(f"本次构建使用 embedding_backend={settings.embedding_backend}, embedding_device={settings.embedding_device}")
 
     builder = KnowledgeBaseBuilder(
         args.manual_dir,

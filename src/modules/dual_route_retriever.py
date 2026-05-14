@@ -259,7 +259,6 @@ class DualRouteRetriever:
                 images=images,
                 image_tags=image_tags,
                 product_candidates=product_candidates,
-                normalized_query=search_query,
             )
             if self.route_classifier is not None
             else self._empty_classifier_result()
@@ -587,24 +586,22 @@ class DualRouteRetriever:
 
                     if doc_tuples:
                         reranked_tuples = self.rag_engine.reranker.rerank(query, doc_tuples, top_k)
-                        broad_by_doc_id = {item[0].doc_id: {
-                            "content": item[0].content,
-                            "doc_id": item[0].doc_id,
+                        broad_by_doc_id = {doc.doc_id: {
+                            "content": doc.content,
+                            "doc_id": doc.doc_id,
                             "relevance_score": score,
-                            "metadata": dict(item[0].metadata),
-                            "has_image": "<PIC>" in item[0].content,
-                            "image_ids": re.findall(r'\[([^\]]+)\]', item[0].content),
-                        } for item, score in reranked_tuples}
+                            "metadata": dict(doc.metadata),
+                            "has_image": "<PIC>" in doc.content,
+                            "image_ids": re.findall(r'\[([^\]]+)\]', doc.content),
+                        } for doc, score in reranked_tuples}
                         logger.debug(f"局部召回 rerank: {len(broad_by_doc_id)} 个文档已重排")
 
             if not broad_by_doc_id:
-                # 型号/代码词存在时启用 hybrid，改善精确匹配的召回效果
-                use_hybrid = self._contains_code_word(query)
+                # 型号/代码词存在时会通过 settings.enable_hybrid_retrieval 触发 hybrid 检索
                 broad_results = self.rag_engine.retrieve(
                     query,
                     top_k=max(top_k, settings.route_manual_broad_top_k),
                     use_rerank=use_rerank,
-                    use_hybrid=use_hybrid,
                 )
                 broad_by_doc_id = {item["doc_id"]: item for item in broad_results}
 
@@ -616,12 +613,10 @@ class DualRouteRetriever:
                 top_k=top_k,
             )
         else:
-            use_hybrid = self._contains_code_word(query)
             broad_results = self.rag_engine.retrieve(
                 query,
                 top_k=max(top_k, settings.route_manual_broad_top_k),
                 use_rerank=use_rerank,
-                use_hybrid=use_hybrid,
             )
             reranked = self._rerank_manual_results(query, broad_results, top_k=top_k)
 
@@ -1269,7 +1264,10 @@ class DualRouteRetriever:
         return terms
 
 
-def get_dual_route_retriever() -> DualRouteRetriever:
+_dual_route_retriever: Optional["DualRouteRetriever"] = None
+
+
+def get_dual_route_retriever() -> "DualRouteRetriever":
     global _dual_route_retriever
     if _dual_route_retriever is None:
         _dual_route_retriever = DualRouteRetriever()
