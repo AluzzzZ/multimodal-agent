@@ -14,6 +14,7 @@ _EXPORTS = {
     "TextParser": ("src.modules.multimodal_understanding", "TextParser"),
     "ImageParser": ("src.modules.multimodal_understanding", "ImageParser"),
     "get_multimodal_understanding": ("src.modules.multimodal_understanding", "get_multimodal_understanding"),
+    "VLMUnderstandingEngine": ("src.modules.vlm_understanding", "VLMUnderstandingEngine"),
     "RAGEngine": ("src.modules.rag_engine", "RAGEngine"),
     "KnowledgeBase": ("src.modules.rag_engine", "KnowledgeBase"),
     "Document": ("src.modules.rag_engine", "Document"),

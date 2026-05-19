@@ -9,7 +9,7 @@ import hashlib
 import re
 import gc
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple, Iterator
+from typing import List, Dict, Any, Optional, Tuple, Iterator, Union
 import numpy as np
 import faiss
 from loguru import logger
@@ -104,6 +104,17 @@ class KnowledgeBase:
                 f"(适合低内存构建和Cursor终端环境)"
             )
             return HashingEmbeddingModel(settings.embedding_dim)
+
+        if settings.embedding_backend == "dashscope":
+            logger.info(
+                f"使用百炼 text-embedding-v3 API: {settings.embedding_model}"
+            )
+            return DashscopeEmbeddingModel(
+                model=settings.embedding_model,
+                api_key=settings.embedding_api_key,
+                base_url=settings.embedding_api_base,
+                dimension=settings.embedding_dim,
+            )
 
         if settings.embedding_backend == "sentence_transformer":
             from sentence_transformers import SentenceTransformer
@@ -624,11 +635,17 @@ class KnowledgeBase:
 
 
 class Reranker:
-    """重排序器 - 对检索结果进行精细排序"""
+    """重排序器 - 对检索结果进行精细排序
+
+    支持两种后端：
+    - dashscope: 使用百炼 qwen3-vl-rerank API（支持文本+图片）
+    - local: 使用本地 CrossEncoder 模型
+    """
 
     def __init__(self):
         self.model = None
         self._initialized = False
+        self._backend = None
 
     def initialize(self):
         """初始化重排序模型"""
@@ -639,16 +656,50 @@ class Reranker:
             self._initialized = True
             return
 
-        try:
-            logger.info(f"加载重排序模型: {settings.reranker_model}")
-            from sentence_transformers import CrossEncoder
-            self.model = CrossEncoder(settings.reranker_model)
-            logger.info("重排序模型加载成功")
-        except Exception as e:
-            logger.warning(f"重排序模型加载失败: {e}")
-            self.model = None
+        self._backend = settings.reranker_backend
+
+        if self._backend == "dashscope":
+            self._initialize_dashscope()
+        else:
+            self._initialize_local()
 
         self._initialized = True
+
+    def _initialize_dashscope(self):
+        """初始化百炼 API 重排序"""
+        api_key = settings.reranker_api_key
+        if not api_key:
+            logger.warning("百炼 API Key 未配置，跳过 Reranker")
+            return
+
+        logger.info(f"使用百炼 qwen3-vl-rerank API: {settings.reranker_model}")
+        self.model = "dashscope"  # 标记使用 dashscope
+
+    def _initialize_local(self):
+        """初始化本地 CrossEncoder 重排序"""
+        try:
+            import os
+            model_path = settings.reranker_model
+
+            # 处理本地模型路径
+            if model_path.startswith("models/") or os.path.isabs(model_path):
+                if model_path.startswith("models/"):
+                    from config import settings
+                    project_root = settings.PROJECT_ROOT
+                    model_path = str(project_root / model_path)
+                logger.info(f"加载本地重排序模型: {model_path}")
+            else:
+                logger.info(f"加载重排序模型: {model_path}")
+
+            from sentence_transformers import CrossEncoder
+            self.model = CrossEncoder(
+                model_path,
+                device=settings.embedding_device,
+            )
+            logger.info("本地重排序模型加载成功")
+        except Exception as e:
+            logger.warning(f"本地重排序模型加载失败: {e}")
+            self.model = None
 
     def rerank(
         self,
@@ -670,31 +721,112 @@ class Reranker:
         if not self._initialized:
             self.initialize()
 
-        if self.model is None or not documents:
+        if not documents:
+            return []
+
+        # 如果模型未初始化，返回原始结果
+        if self.model is None:
             return documents[:top_k]
 
         try:
-            # 准备句子对
-            sentence_pairs = [
-                (query, doc.content) for doc, _ in documents
-            ]
-
-            # 获取重排序分数
-            scores = self.model.predict(sentence_pairs)
-
-            # 组合并排序
-            scored_documents = [
-                (doc, float(score))
-                for (doc, _), score in zip(documents, scores)
-            ]
-
-            scored_documents.sort(key=lambda x: x[1], reverse=True)
-
-            return scored_documents[:top_k]
-
+            if self._backend == "dashscope":
+                return self._rerank_dashscope(query, documents, top_k)
+            else:
+                return self._rerank_local(query, documents, top_k)
         except Exception as e:
             logger.error(f"重排序失败: {e}")
             return documents[:top_k]
+
+    def _rerank_dashscope(
+        self,
+        query: str,
+        documents: List[Tuple[Document, float]],
+        top_k: int = 5
+    ) -> List[Tuple[Document, float]]:
+        """使用百炼 API 进行重排序"""
+        try:
+            import requests
+
+            api_key = settings.reranker_api_key
+            # 百炼 rerank API 完整路径
+            base_url = "https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank"
+
+            # 构建文档列表（仅文本）
+            doc_texts = [doc.content for doc, _ in documents]
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+
+            payload = {
+                "model": settings.reranker_model,
+                "input": {
+                    "query": {"text": query},
+                    "documents": [{"text": text} for text in doc_texts],
+                },
+                "parameters": {
+                    "top_n": top_k,
+                    "return_documents": True,
+                },
+            }
+
+            response = requests.post(
+                base_url,
+                headers=headers,
+                json=payload,
+                timeout=30,
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"百炼 API 返回错误: {response.status_code} - {response.text}")
+                return documents[:top_k]
+
+            result = response.json()
+
+            # 解析结果
+            results = result.get("output", {}).get("results", [])
+
+            # 构建 (文档, 分数) 列表，保持原始顺序
+            doc_scores = {doc.content: score for doc, score in documents}
+
+            reranked = []
+            for item in results:
+                doc_index = item.get("index", 0)
+                relevance_score = item.get("relevance_score", 0.0)
+                if 0 <= doc_index < len(documents):
+                    reranked.append((documents[doc_index][0], float(relevance_score)))
+
+            return reranked
+
+        except Exception as e:
+            logger.error(f"百炼重排序失败: {e}")
+            return documents[:top_k]
+
+    def _rerank_local(
+        self,
+        query: str,
+        documents: List[Tuple[Document, float]],
+        top_k: int = 5
+    ) -> List[Tuple[Document, float]]:
+        """使用本地模型进行重排序"""
+        # 准备句子对
+        sentence_pairs = [
+            (query, doc.content) for doc, _ in documents
+        ]
+
+        # 获取重排序分数
+        scores = self.model.predict(sentence_pairs)
+
+        # 组合并排序
+        scored_documents = [
+            (doc, float(score))
+            for (doc, _), score in zip(documents, scores)
+        ]
+
+        scored_documents.sort(key=lambda x: x[1], reverse=True)
+
+        return scored_documents[:top_k]
 
 
 class RAGEngine:
@@ -916,6 +1048,97 @@ class HashingEmbeddingModel:
         return re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]", cleaned)
 
 
+class DashscopeEmbeddingModel:
+    """
+    基于百炼 text-embedding-v3 API 的嵌入模型。
+
+    使用 OpenAI 兼容接口调用百炼 Embedding 服务。
+    """
+
+    def __init__(
+        self,
+        model: str = "text-embedding-v3",
+        api_key: str = None,
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        dimension: int = 1024,
+    ):
+        self.model = model
+        self.api_key = api_key
+        self.base_url = base_url
+        self.dimension = dimension
+        self._client = None
+
+    def _get_client(self):
+        """获取 OpenAI 兼容客户端"""
+        if self._client is None:
+            from openai import OpenAI
+            self._client = OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url,
+            )
+        return self._client
+
+    def encode(
+        self,
+        texts: Union[str, List[str]],
+        batch_size: int = 16,
+        show_progress_bar: bool = False,
+        convert_to_numpy: bool = True,
+        normalize_embeddings: bool = True,
+    ) -> np.ndarray:
+        """
+        将文本列表编码为嵌入向量。
+
+        Args:
+            texts: 单个文本或文本列表
+            batch_size: 批处理大小
+            show_progress_bar: 是否显示进度条
+            convert_to_numpy: 是否转换为 numpy 数组
+            normalize_embeddings: 是否做 L2 归一化
+
+        Returns:
+            嵌入向量数组，shape: (len(texts), dimension)
+        """
+        if isinstance(texts, str):
+            texts = [texts]
+
+        texts = [t or "" for t in texts]
+
+        client = self._get_client()
+        all_embeddings = []
+
+        # 分批处理
+        for i in range(0, len(texts), batch_size):
+            batch = texts[i:i + batch_size]
+
+            try:
+                response = client.embeddings.create(
+                    model=self.model,
+                    input=batch,
+                    encoding_format="float",
+                )
+
+                embeddings = [item.embedding for item in response.data]
+                all_embeddings.extend(embeddings)
+
+            except Exception as e:
+                logger.error(f"百炼 Embedding API 调用失败: {e}")
+                # 返回零向量作为降级
+                all_embeddings.extend([[0.0] * self.dimension for _ in batch])
+
+        result = np.array(all_embeddings, dtype=np.float32)
+
+        # L2 归一化
+        if normalize_embeddings:
+            faiss.normalize_L2(result)
+
+        return result
+
+    def get_sentence_embedding_dimension(self) -> int:
+        """返回嵌入向量维度"""
+        return self.dimension
+
+
 class TransformersEmbeddingModel:
     """
     基于 transformers 库的嵌入模型。
@@ -949,9 +1172,20 @@ class TransformersEmbeddingModel:
         from transformers import AutoTokenizer, AutoModel
         import torch
 
-        logger.info(f"加载 transformers 模型: {self.model_name}")
-        self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-        self._model = AutoModel.from_pretrained(self.model_name)
+        # 处理本地模型路径
+        model_path = self.model_name
+        if model_path.startswith("models/") or os.path.isabs(model_path):
+            if model_path.startswith("models/"):
+                # 转换为相对于项目根目录的路径
+                from config import settings
+                project_root = settings.PROJECT_ROOT
+                model_path = project_root / model_path
+            logger.info(f"加载本地 transformers 模型: {model_path}")
+        else:
+            logger.info(f"加载 transformers 模型: {model_path}")
+
+        self._tokenizer = AutoTokenizer.from_pretrained(model_path)
+        self._model = AutoModel.from_pretrained(model_path)
 
         if self.device == "cuda" and torch.cuda.is_available():
             self._model = self._model.to("cuda")

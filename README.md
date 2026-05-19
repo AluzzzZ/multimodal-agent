@@ -18,9 +18,10 @@
 
 ### 需要注意的当前边界
 
-- `/chat` 当前已实现 `question`、`images`、`session_id` 三个核心字段，`stream` 还未接入代码层。
+- `/chat` 当前已实现 `question`、`images`、`session_id`、`stream` 四个字段；当 `stream=true` 时，为保持赛题接口兼容，当前版本仍降级为**同步完整响应**，不会返回 SSE/分块流。
 - 当前知识库主形态是“文本 chunk + 图片 ID 绑定”，图片索引能力在底层留有接口，但离线构建脚本默认只写入文本知识。
 - 评测报告与技术文档应基于最新脚本实跑结果回填，仓库中的历史评测目录不能直接视为最终提交结果。
+- 当前多轮会话默认使用**进程内内存存储**；比赛演示和单实例部署可用，生产分布式部署建议替换为 Redis 等共享会话存储。
 
 ## 项目结构
 
@@ -177,9 +178,21 @@ Content-Type: application/json
 {
   "question": "我的DCB107或DCB112型号电钻指示灯闪烁时，这些闪烁标识代表什么含义？",
   "images": ["data:image/png;base64,..."],
-  "session_id": "kf_session_889900"
+  "session_id": "kf_session_889900",
+  "stream": false
 }
 ```
+
+#### 图片输入约束
+
+- `images` 最多 `3` 张
+- 每张图片必须携带完整前缀：
+  - `data:image/png;base64,`
+  - `data:image/jpg;base64,`
+  - `data:image/jpeg;base64,`
+  - `data:image/webp;base64,`
+- 单张图片大小限制：`<= 5MB`
+- 图片不符合格式或大小限制时，接口会返回 `422`
 
 #### 响应体
 
@@ -205,9 +218,26 @@ curl --request POST `
   --data '{
     "question": "物流一直显示待揽收，是什么原因？",
     "images": [],
-    "session_id": "demo-session-001"
+    "session_id": "demo-session-001",
+    "stream": false
   }'
 ```
+
+## 部署说明
+
+### 测试环境
+
+- 默认使用 `HTTP/1.1`
+- 本地调试地址通常为 `http://127.0.0.1:8000`
+
+### 生产环境
+
+- 建议通过 `Nginx / Caddy / API Gateway` 反向代理提供 `HTTPS`
+- Bearer Token 应通过环境变量注入，不要写死在部署脚本中
+- 若需要多实例或分布式部署：
+  - 将 `ConversationManager` 的会话存储从进程内内存替换为 `Redis` 或数据库
+  - 将上传图片与日志输出接入共享存储或对象存储
+  - 在网关层统一做 TLS、限流和访问审计
 
 ## 常用脚本
 

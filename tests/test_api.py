@@ -12,6 +12,9 @@ API测试 - 赛题接口规范
 import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, MagicMock
+import base64
+import io
+from PIL import Image
 
 # 使用mock避免初始化实际模块
 with patch.dict('os.environ', {'API_TOKEN': 'sk_customer_20260304'}):
@@ -20,6 +23,17 @@ with patch.dict('os.environ', {'API_TOKEN': 'sk_customer_20260304'}):
 # 测试用Token
 TEST_TOKEN = "sk_customer_20260304"
 TEST_HEADERS = {"Authorization": f"Bearer {TEST_TOKEN}"}
+
+
+def _make_valid_png_data_url() -> str:
+    image = Image.new("RGB", (1, 1), color=(255, 255, 255))
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("utf-8")
+    return f"data:image/png;base64,{encoded}"
+
+
+VALID_PNG_DATA_URL = _make_valid_png_data_url()
 
 client = TestClient(app)
 
@@ -128,7 +142,7 @@ class TestChatAPI:
                     "/chat",
                     json={
                         "question": "这张图片显示的是什么？",
-                        "images": ["data:image/png;base64,iVBORw0KGgo="]
+                        "images": [VALID_PNG_DATA_URL]
                     },
                     headers=TEST_HEADERS
                 )
@@ -136,6 +150,40 @@ class TestChatAPI:
                 assert response.status_code == 200
                 data = response.json()
                 assert data["code"] == 0
+
+    def test_chat_with_stream_flag_falls_back_to_sync(self):
+        """测试 stream=true 时当前版本仍按同步完整响应返回"""
+        with patch('src.api.get_response_generator') as mock_gen:
+            mock_instance = MagicMock()
+            mock_instance.generate.return_value = {
+                "response": "这是同步完整响应。",
+                "images": [],
+                "sources": [],
+                "reasoning": None,
+                "confidence": 0.9
+            }
+            mock_gen.return_value = mock_instance
+
+            with patch('src.api.get_conversation_manager') as mock_cm:
+                mock_cm_instance = MagicMock()
+                mock_cm_instance.create_session.return_value = "stream_session_001"
+                mock_cm_instance.get_conversation_history.return_value = []
+                mock_cm.return_value = mock_cm_instance
+
+                response = client.post(
+                    "/chat",
+                    json={
+                        "question": "测试流式字段",
+                        "stream": True
+                    },
+                    headers=TEST_HEADERS
+                )
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["code"] == 0
+                assert data["msg"] == "success"
+                assert data["data"]["answer"] == "这是同步完整响应。"
 
     def test_chat_with_session_id(self):
         """测试带session_id的多轮对话"""
@@ -200,6 +248,34 @@ class TestChatAPI:
             headers=TEST_HEADERS
         )
         assert response.status_code == 422
+
+    def test_chat_invalid_image_prefix(self):
+        """测试图片未携带规定的 data:image 前缀"""
+        response = client.post(
+            "/chat",
+            json={
+                "question": "测试图片格式",
+                "images": ["iVBORw0KGgo="]
+            },
+            headers=TEST_HEADERS
+        )
+        assert response.status_code == 422
+        assert "data:image" in response.json()["detail"]
+
+    def test_chat_image_too_large(self):
+        """测试单张图片超过 5MB 限制"""
+        oversized_bytes = b"\x00" * (5 * 1024 * 1024 + 1)
+        oversized = base64.b64encode(oversized_bytes).decode("utf-8")
+        response = client.post(
+            "/chat",
+            json={
+                "question": "测试超大图片",
+                "images": [f"data:image/png;base64,{oversized}"]
+            },
+            headers=TEST_HEADERS
+        )
+        assert response.status_code == 422
+        assert "超过限制" in response.json()["detail"]
 
 
 class TestSessionAPI:

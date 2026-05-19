@@ -7,6 +7,7 @@
 """
 
 import re
+import concurrent.futures
 from typing import List, Dict, Any, Optional, Tuple
 from loguru import logger
 
@@ -19,6 +20,11 @@ from .hallucination_controller import (
     get_hallucination_controller,
     get_cot_reasoner
 )
+from .multimodal_understanding import (
+    MultimodalUnderstanding,
+    get_multimodal_understanding,
+)
+from .understanding_types import MultimodalUnderstandingResult
 
 
 class ResponseGenerator:
@@ -43,6 +49,8 @@ class ResponseGenerator:
         self.hallucination_controller: Optional[HallucinationController] = None
         # 思维链推理器 - 用于问题拆解
         self.cot_reasoner: Optional[ChainOfThoughtReasoner] = None
+        # 多模态理解器 - 用于图片语义理解（image_tags / product_candidates / visual_intents）
+        self.multimodal_understanding: Optional[MultimodalUnderstanding] = None
         self._initialized = False
 
     def initialize(self):
@@ -99,6 +107,11 @@ class ResponseGenerator:
         self.cot_reasoner = get_cot_reasoner()
         self.cot_reasoner.initialize()
 
+        # 多模态理解器初始化（如果配置了 eager_init_multimodal 则预加载，否则延迟到首次 analyze 调用）
+        self.multimodal_understanding = get_multimodal_understanding()
+        if settings.eager_init_multimodal:
+            self.multimodal_understanding.initialize(include_image=True)
+
         self._initialized = True
         logger.info("回答生成器初始化完成")
 
@@ -139,6 +152,36 @@ class ResponseGenerator:
         if not self._initialized:
             self.initialize()
 
+        # ========== Step 0: 多模态理解（前置模块） ==========
+        # 对用户问题和图片做结构化理解，提取：
+        # - normalized_query / language（用于后续检索）
+        # - image_tags / visual_intents（影响路由和检索）
+        # - product_candidates（影响手册候选）
+        mm_result: Optional[MultimodalUnderstandingResult] = None
+        if images or conversation_history:
+            try:
+                mm_result = self.multimodal_understanding.analyze(
+                    question=query,
+                    images=images,
+                    conversation_history=conversation_history,
+                )
+                logger.debug(
+                    f"多模态理解结果: tags={mm_result.image_tags}, "
+                    f"candidates={mm_result.product_candidates}, "
+                    f"intents={mm_result.visual_intents}, "
+                    f"evidence={mm_result.evidence_type}"
+                )
+            except Exception as e:
+                logger.warning(f"多模态理解失败，降级为主链: {e}")
+                mm_result = None
+
+        # 从多模态理解结果中提取下游链路需要的关键字段
+        mm_normalized_query = mm_result.normalized_query if mm_result else None
+        mm_image_tags = mm_result.image_tags if mm_result else None
+        mm_product_candidates = mm_result.product_candidates if mm_result else None
+        mm_visual_intents = mm_result.visual_intents if mm_result else None
+        mm_evidence_type = mm_result.evidence_type if mm_result else None
+
         # 初始化结果容器
         result = {
             "response": "",
@@ -146,7 +189,8 @@ class ResponseGenerator:
             "sources": [],
             "reasoning": None,
             "confidence": 0.0,
-            "routes": []
+            "routes": [],
+            "multimodal_understanding": mm_result.to_dict() if mm_result else None,
         }
 
         # ========== Step 1: 问题分解 (思维链) ==========
@@ -167,15 +211,27 @@ class ResponseGenerator:
                 "mode": "fast_split"
             }
 
-        # ========== Step 2: RAG检索 ==========
-        # 对每个子问题独立检索，收集所有相关来源
+        # ========== Step 2: RAG检索（并行） ==========
+        # 对每个子问题并发检索，收集所有相关来源
         # 去重处理避免重复内容
         all_sources = []
         retrieved_images = []
         route_packets = []
 
-        for sq in sub_questions:
-            route_result = self.dual_route_retriever.retrieve(sq, images=images)
+        def _retrieve_one(sq: str) -> Dict[str, Any]:
+            return self.dual_route_retriever.retrieve(
+                sq,
+                images=images,
+                normalized_query=mm_normalized_query,
+                image_tags=mm_image_tags,
+                product_candidates=mm_product_candidates,
+            )
+
+        # 多线程并行检索（子问题数通常 1-3 个，并行收益明显）
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(sub_questions), 3)) as pool:
+            route_results = list(pool.map(_retrieve_one, sub_questions))
+
+        for sq, route_result in zip(sub_questions, route_results):
             retrieval_result = route_result["results"]
             route_packets.append(
                 {
@@ -201,13 +257,14 @@ class ResponseGenerator:
                         retrieved_images.extend(item["image_ids"])
 
         # ========== Step 3: 构建上下文 ==========
-        # 整合检索到的知识、对话历史、额外上下文
+        # 整合检索到的知识、对话历史、额外上下文、以及多模态理解结果
         context_text = self._build_context(
             all_sources,
             conversation_history,
             context,
             result["routes"],
             route_packets=route_packets,
+            mm_result=mm_result,
         )
 
         # ========== Step 4: 生成回答 ==========
@@ -342,6 +399,7 @@ class ResponseGenerator:
         extra_context: Optional[str],
         route_records: Optional[List[Dict[str, Any]]] = None,
         route_packets: Optional[List[Dict[str, Any]]] = None,
+        mm_result: Optional["MultimodalUnderstandingResult"] = None,
     ) -> str:
         """
         构建上下文文本 - 用于填充LLM的prompt
@@ -360,6 +418,18 @@ class ResponseGenerator:
             格式化的上下文文本
         """
         context_parts = []
+
+        # 0. 添加多模态理解结果（图片标签 / 候选产品 / 视觉意图）
+        if mm_result:
+            mm_parts = []
+            if mm_result.image_tags:
+                mm_parts.append(f"图片标签: {' / '.join(mm_result.image_tags)}")
+            if mm_result.product_candidates:
+                mm_parts.append(f"候选产品: {' / '.join(mm_result.product_candidates)}")
+            if mm_result.visual_intents:
+                mm_parts.append(f"视觉意图: {' / '.join(mm_result.visual_intents)}")
+            if mm_parts:
+                context_parts.append("【图片理解】" + " | ".join(mm_parts))
 
         if route_records:
             route_summary = " / ".join(

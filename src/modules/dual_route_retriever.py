@@ -29,38 +29,14 @@ from .route_classifier import RouteClassifier, get_route_classifier
 from .route_classifier import SERVICE_HINTS, MANUAL_HINTS, MIXED_HINTS
 from src.utils.text_utils import QueryProcessor
 from src.utils.llm_corrector import get_spell_corrector
+from src.utils.domain_knowledge import MANUAL_ALIAS_SEEDS
 
 
-MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
-    "VR头显手册": ["VR头显", "头显", "VR设备", "vr"],
-    "人体工学椅手册": ["人体工学椅", "工学椅", "办公椅", "椅子"],
-    "健身单车手册": ["健身单车", "动感单车", "单车"],
-    "健身追踪器手册": ["健身追踪器", "手环", "表带", "追踪器"],
-    "儿童电动摩托车手册": ["儿童电动摩托车", "儿童摩托车", "电动摩托车"],
-    "冰箱手册": ["冰箱", "冷藏室", "冷冻室"],
-    "功能键盘手册": ["功能键盘", "键盘", "硬件模式"],
-    "发电机手册": ["发电机", "机油", "发动机", "电池电量"],
-    "可编程温控器手册": ["温控器", "可编程温控器", "恒温器"],
-    "吹风机手册": ["吹风机", "冷机", "热机", "化油器"],
-    "摩托艇手册": [
-        "摩托艇", "划船", "钓鱼", "拖曳速度", "滑航",
-        "boat", "ship", "bimini top", "anchor light", "jet wash",
-        "bilge pump", "cooling system", "engine oil", "water supply button",
-        "battery compartment", "sound system", "emission control certificate",
-    ],
-    "水泵手册": ["水泵", "泵"],
-    "洗碗机手册": ["洗碗机", "亮碟剂", "餐具篮"],
-    "烤箱手册": ["烤箱", "烘烤", "air fryer", "airfryer", "空气炸锅"],
-    "电钻手册": ["电钻", "指示灯", "DCB107", "DCB112"],
-    "相机手册": ["相机", "镜头", "快门", "闪光灯"],
-    "空气净化器手册": ["空气净化器", "空气质量指示灯", "净化器"],
-    "空调手册": ["空调", "遥控器", "自清洁", "等离子", "自动运行模式"],
-    "蒸汽清洁机手册": ["蒸汽清洁机", "蒸汽拖把", "清洁机"],
-    "蓝牙激光鼠标手册": ["蓝牙激光鼠标", "蓝牙鼠标", "鼠标"],
-}
+# MANUAL_ALIAS_SEEDS 已迁移至 src/utils/domain_knowledge.py
+# 此处保留向后兼容导入，供外部引用（如有）
+from src.utils.domain_knowledge import MANUAL_ALIAS_SEEDS
 
 # SERVICE_ONLY_HINTS 收敛至 route_classifier.py，从那里读取
-# 此处仅保留向后兼容别名
 SERVICE_ONLY_HINTS = SERVICE_HINTS
 
 # 型号/代码词检测正则：命中时强烈暗示说明书类问题，建议启用 hybrid 检索

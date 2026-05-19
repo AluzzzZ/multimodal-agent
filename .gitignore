@@ -49,9 +49,20 @@ logs/
 
 # Knowledge base - large generated files
 knowledge_base/index/
+knowledge_base/index/build_progress.json
+knowledge_base/index/text_index.faiss
+!knowledge_base/index/metadata.json
 !knowledge_base/index/.gitkeep
 knowledge_base/raw/
 knowledge_base/images/
+knowledge_base/evaluation/*.json
+knowledge_base/evaluation/*.md
+knowledge_base/evaluation/*.csv
+knowledge_base/evaluation/*.html
+
+# Eval result data
+data/
+!data/.gitkeep
 
 # Model files
 *.bin
@@ -59,35 +70,60 @@ knowledge_base/images/
 *.pth
 *.h5
 *.onnx
+*.onnx.data
 models/
+.venv312_new/
+knowledge_base/route_classifier/
 
-# Temporary files
-tmp/
-temp/
-*.tmp
-*.cache
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
-
-# Docs build
-site/
-
-# Evaluation outputs
-knowledge_base/evaluation/*.json
-knowledge_base/evaluation/*.md
-knowledge_base/evaluation/*.csv
+# HuggingFace cache (if used)
+# D:/models/huggingface/
 
 # Temporary / experimental scripts
 scripts/rebuild_kb_temp.py
 scripts/rebuild_kb_transformers.py
 scripts/split_english_manuals.py
+scripts/enhanced_intent_classifier.py
+scripts/test_enhanced_classifier.py
+scripts/llm_intent_classifier.py
+scripts/test_llm_classifier.py
+scripts/lora_train_intent.py
+scripts/generate_lora_training_data.py
+scripts/download_qwen_model.py
+scripts/build_multimodal_eval_set.py
+scripts/evaluate_multimodal.py
+scripts/lora_train_intent.py
+scripts/evaluate_ragas.py
+
+# Eval / benchmark scripts
+scripts/build_route_classifier_dataset.py
+scripts/train_route_classifier.py
+scripts/audit_route_dataset.py
+scripts/scan_route_thresholds.py
+scripts/benchmark_chat.py
+
+# Standalone eval files
+check_models.py
+test_models.py
+test_results_*.json
+eval_results_*.json
+enhanced_classifier_results.json
+llm_classifier_results.json
+lora_training_data.jsonl
+multimodal_eval_set.json
+eval_baseline_*.json
+
+# Docs (generated / experimental)
+docs/建库优化_模型版/
+docs/手册检索流程细化图.md
+docs/技术报告.md
+docs/evaluation/
+docs/api_reference/
+docs/site/
+docs/build/
 
 # Manual source files (competition data)
 手册/
+插图/
+
+# Test artifacts
+tests/test_question.py

@@ -22,34 +22,61 @@ class Settings(BaseSettings):
     
     # LLM配置
     llm_provider: str = "openai"  # openai, local, anthropic
-    llm_model: str = "gpt-4-vision-preview"
+    llm_model: str = "deepseek-v4-pro"
     llm_temperature: float = 0.7
-    llm_max_tokens: int = 2048
+    llm_max_tokens: int = 4096
     llm_api_key: Optional[str] = None
-    llm_base_url: Optional[str] = None
+    llm_base_url: Optional[str] = "https://cloud.infini-ai.com/maas/v1"
     
-    # Embedding配置
-    embedding_backend: str = "transformers"  # hashing, sentence_transformer, transformers
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # transformers后端推荐使用此模型
-    embedding_device: str = "cpu"  # cpu, cuda
-    embedding_batch_size: int = 8
-    embedding_dim: int = 384  # MiniLM为384维; BGE-M3为1024维; m3e-base为768维
-    max_seq_length: int = 256  # transformers模型的最大序列长度
+    # Embedding配置（支持本地模型或云端API）
+    embedding_backend: str = "dashscope"  # dashscope | transformers | hashing | sentence_transformer
+    embedding_model: str = "text-embedding-v3"  # dashscope: text-embedding-v3 | 本地: models/bge-m3
+    embedding_api_key: Optional[str] = None  # 百炼 API Key
+    embedding_api_base: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    embedding_device: str = "cpu"  # cpu, cuda（仅本地模型使用）
+    embedding_batch_size: int = 16
+    embedding_dim: int = 1024  # text-embedding-v3 为 1024 维
+    max_seq_length: int = 2048  # 最大序列长度
 
-    # 多模态模型配置
-    enable_vision_model: bool = False
-    vision_model: str = "openai/clip-vit-large-patch14"
-    vision_processor: str = "openai/clip-vit-large-patch14"
+    # 视觉大模型配置（外部 API）
+    vision_llm_provider: str = "openai"  # openai, anthropic, google
+    vision_llm_api_key: Optional[str] = None
+    vision_llm_base_url: Optional[str] = "https://cloud.infini-ai.com/maas/v1"
+    vision_llm_model: str = "qwen3-vl-235b-a22b-thinking"  # 视觉理解模型
+    vision_llm_enabled: bool = True  # 启用视觉大模型 API
+
+    # VLM 结构化理解配置
+    multimodal_backend: str = "hybrid"  # rule | vlm | hybrid
+    # rule: 只用规则链（原有逻辑）
+    # vlm: 只用 VLM 结构化输出
+    # hybrid: VLM 优先，失败回退规则链
+    multimodal_hybrid_stage: str = "product_candidates"  # observe | product_candidates | image_tags | evidence_type | full
+    # observe: 只记录 VLM 结果，不影响主链
+    # product_candidates: 仅让 VLM 影响候选产品
+    # image_tags: 让 VLM 影响候选产品 + 图片标签 + 视觉意图
+    # evidence_type: 再让 VLM 影响证据类型
+    # full: VLM 结果作为主输出，规则做补全
+
+    vlm_max_images: int = 1          # VLM 单次调用最多图片数
+    vlm_timeout_seconds: float = 10.0 # VLM API 超时（秒）
+    vlm_max_tokens: int = 512        # VLM 输出最大 token 数
+    vlm_temperature: float = 0.1      # VLM temperature（低以保证格式稳定）
+    vlm_debug_log: bool = False      # VLM raw output 写日志（默认关闭以省日志量）
     
     chunk_size: int = 500
     chunk_overlap: int = 50
 
     # RAG配置（优化后）
-    rag_top_k: int = 8  # 提高 top_k，增加候选给 reranker
-    rag_score_threshold: float = 0.35  # 降低阈值，增加召回
-    rag_rerank_candidate_k: int = 12  # rerank 候选上限，减少不必要的重排计算
-    rag_enable_reranker: bool = True  # 启用BGE-M3配套的多语言重排序模型
-    reranker_model: str = "BAAI/bge-reranker-v2-m3"  # 多语言交叉编码器，支持中文重排序
+    rag_top_k: int = 5  # 检索候选数
+    rag_score_threshold: float = 0.35
+    rag_rerank_candidate_k: int = 8  # rerank 候选上限
+    rag_enable_reranker: bool = True
+
+    # Reranker配置（支持本地模型或云端API）
+    reranker_backend: str = "dashscope"  # dashscope | local
+    reranker_model: str = "qwen3-vl-rerank"  # dashscope: qwen3-vl-rerank | local: models/bge-reranker-v2-m3
+    reranker_api_key: Optional[str] = None  # 百炼 API Key
+    reranker_api_base: str = "https://dashscope.aliyuncs.com/api/v1/services/rerank"
 
     # 知识库配置
     knowledge_base_path: Path = PROJECT_ROOT / "knowledge_base"
@@ -76,7 +103,7 @@ class Settings(BaseSettings):
     route_manual_candidate_top_k: int = 2
     route_manual_broad_top_k: int = 24
     route_classifier_enabled: bool = True
-    route_classifier_backend: str = "onnx"
+    route_classifier_backend: str = "llm"  # llm | onnx | rule（llm 使用 LLM API 判断）
     route_classifier_high_threshold: float = 0.82
     route_classifier_low_threshold: float = 0.46
     route_classifier_use_image_tags: bool = True

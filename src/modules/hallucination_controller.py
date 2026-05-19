@@ -319,6 +319,12 @@ class ChainOfThoughtReasoner:
                     base_url=settings.llm_base_url,
                     temperature=0.5
                 )
+            elif settings.llm_provider == "local":
+                from langchain_community.chat_models import ChatOllama
+                self.llm_client = ChatOllama(
+                    model=settings.llm_model,
+                    temperature=0.5
+                )
             logger.info("思维链推理器初始化成功")
         except Exception as e:
             logger.warning(f"思维链推理器初始化失败: {e}")

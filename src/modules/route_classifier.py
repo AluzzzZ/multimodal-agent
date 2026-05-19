@@ -3,7 +3,7 @@
 
 职责：
 1. 将 query 归一化为固定输入文本；
-2. 使用本地 ONNX 小模型做 service/manual/mixed 三分类；
+2. 使用 LLM API 或本地 ONNX 小模型做 service/manual/mixed 三分类；
 3. 模型缺失或运行失败时自动降级，不阻断主链路。
 """
 
@@ -19,6 +19,11 @@ import numpy as np
 from loguru import logger
 
 from config import settings
+from src.utils.domain_knowledge import (
+    ROUTE_MANUAL_HINTS,
+    ROUTE_MIXED_HINTS,
+    ROUTE_SERVICE_HINTS,
+)
 
 
 # 路由分类标签名称，与 ONNX 模型输出顺序一一对应
@@ -31,19 +36,9 @@ ROUTE_LABELS = ["service", "manual", "mixed"]
 class RouteClassifierFeatureizer:
     """将单条 query 转为固定维度特征向量。"""
 
-    SERVICE_HINTS = [
-        "退款", "退货", "换货", "发票", "售后", "维修", "物流", "运费", "安装",
-        "投诉", "赔偿", "保修", "质保", "补寄", "签收", "优惠券", "以旧换新",
-        "客服", "人工客服", "智能客服", "发货",
-    ]
-    MANUAL_HINTS = [
-        "说明书", "手册", "图示", "配图", "电子版", "纸质版", "如何", "怎么", "步骤",
-        "部件", "组成", "构成", "安装", "开启", "关闭", "清洁", "更换", "设置",
-        "模式", "指示灯", "图标", "按钮",
-    ]
-    MIXED_HINTS = [
-        "说明书", "电子版", "图示", "配图", "纸质版", "安装", "售后", "客服", "维修",
-    ]
+    SERVICE_HINTS = ROUTE_SERVICE_HINTS
+    MANUAL_HINTS = ROUTE_MANUAL_HINTS
+    MIXED_HINTS = ROUTE_MIXED_HINTS
 
     def __init__(self, dim: int = 512):
         self.dim = dim
@@ -176,9 +171,9 @@ class RouteClassifierFeatureizer:
         features[3] = 1.0 if "[has_image]" in lowered else 0.0
         features[4] = min(1.0, english_terms / 12.0)
         features[5] = min(1.0, chinese_terms / 40.0)
-        features[6] = 1.0 if any(token in lowered for token in ("说明书", "图示", "配图", "电子版", "纸质版")) else 0.0
-        features[7] = 1.0 if any(token in lowered for token in ("退款", "退货", "换货", "发票", "优惠券", "以旧换新")) else 0.0
-        features[8] = 1.0 if any(token in lowered for token in ("如何", "怎么", "步骤", "安装", "设置", "清洁")) else 0.0
+        features[6] = 1.0 if any(token in lowered for token in ("说明书", "图示", "配图", "电子版", "纸质版") if token in self.MANUAL_HINTS) else 0.0
+        features[7] = 1.0 if any(token in lowered for token in ("退款", "退货", "换货", "发票", "优惠券", "以旧换新") if token in self.SERVICE_HINTS) else 0.0
+        features[8] = 1.0 if any(token in lowered for token in ("如何", "怎么", "步骤", "安装", "设置", "清洁") if token in self.MANUAL_HINTS) else 0.0
         features[9] = min(1.0, len(text) / 180.0)
         return features
 
@@ -221,16 +216,16 @@ class RouteClassifier:
         self.ready = False
         self._manifest: Dict[str, Any] = {}
         self._initialized = False
+        self._llm_client = None
 
     def initialize(self) -> None:
         """
-        初始化ONNX分类器。
+        初始化路由分类器。
 
-        初始化流程:
-        1. 检查模型文件是否存在
-        2. 加载manifest.json获取标签列表和特征维度
-        3. 创建ONNX Runtime推理会话
-        4. 任一步骤失败不影响主流程，降级为规则路由
+        支持的后端：
+        - llm: 使用 LLM API 进行分类
+        - onnx: 使用本地 ONNX 模型
+        - rule: 仅使用规则路由（降级）
         """
         if self._initialized:
             return
@@ -240,6 +235,30 @@ class RouteClassifier:
             logger.info("路由分类器已禁用，将直接回退规则路由")
             return
 
+        if self.backend == "llm":
+            self._initialize_llm()
+        elif self.backend == "onnx":
+            self._initialize_onnx()
+        else:
+            logger.info(f"路由分类器后端 {self.backend} 不支持，将回退规则路由")
+            self.ready = False
+
+    def _initialize_llm(self) -> None:
+        """初始化 LLM API 后端"""
+        try:
+            from openai import OpenAI
+            self._llm_client = OpenAI(
+                api_key=settings.llm_api_key,
+                base_url=settings.llm_base_url,
+            )
+            self.ready = True
+            logger.info("路由分类器 LLM 后端初始化成功")
+        except Exception as exc:
+            logger.warning(f"路由分类器 LLM 初始化失败: {exc}")
+            self.ready = False
+
+    def _initialize_onnx(self) -> None:
+        """初始化 ONNX 模型后端"""
         manifest_path = self.model_dir / "manifest.json"
         model_path = self.model_dir / "route_classifier.onnx"
         if not manifest_path.exists() or not model_path.exists():
@@ -247,22 +266,22 @@ class RouteClassifier:
             return
 
         try:
-            # 加载manifest获取标签和特征维度配置
             self._manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
             self.labels = self._manifest.get("labels", self.labels)
-            self.featureizer = RouteClassifierFeatureizer(int(self._manifest.get("feature_dim", settings.route_classifier_feature_dim)))
+            self.featureizer = RouteClassifierFeatureizer(
+                int(self._manifest.get("feature_dim", settings.route_classifier_feature_dim))
+            )
 
             import onnxruntime as ort
 
-            # 创建CPU推理会话
             self.session = ort.InferenceSession(
                 str(model_path),
                 providers=["CPUExecutionProvider"],
             )
             self.ready = True
-            logger.info(f"路由分类器加载成功: backend={self.backend}, labels={self.labels}")
+            logger.info(f"路由分类器 ONNX 后端加载成功: labels={self.labels}")
         except Exception as exc:
-            logger.warning(f"路由分类器初始化失败，将回退规则路由: {exc}")
+            logger.warning(f"路由分类器 ONNX 初始化失败: {exc}")
             self.session = None
             self.ready = False
 
@@ -276,13 +295,10 @@ class RouteClassifier:
         """
         对query进行路由分类预测。
 
-        预测流程:
-        1. 构建分类器输入文本
-        2. 编码为特征向量
-        3. 调用ONNX Runtime推理
-        4. 解析输出概率，取最高概率作为预测结果
-
-        推理失败时返回available=False，自动触发规则路由降级。
+        支持的后端：
+        - llm: 使用 LLM API 进行分类
+        - onnx: 使用本地 ONNX 模型
+        - rule: 仅使用规则路由（返回 available=False）
 
         Args:
             normalized_query: 归一化后的查询文本
@@ -302,14 +318,88 @@ class RouteClassifier:
             image_tags=image_tags,
             product_candidates=product_candidates,
         )
-        feature_vector = self.featureizer.encode(
-            normalized_query,
-            images=images,
-            image_tags=image_tags,
-            product_candidates=product_candidates,
-        )
 
-        if not self.ready or self.session is None:
+        # LLM 后端
+        if self.backend == "llm" and self.ready:
+            return self._predict_llm(normalized_query, input_text)
+
+        # ONNX 后端
+        if self.backend == "onnx" and self.ready and self.session is not None:
+            feature_vector = self.featureizer.encode(
+                normalized_query,
+                images=images,
+                image_tags=image_tags,
+                product_candidates=product_candidates,
+            )
+            return self._predict_onnx(input_text, feature_vector)
+
+        # 降级：规则路由
+        return {
+            "available": False,
+            "label": None,
+            "confidence": 0.0,
+            "probs": {label: 0.0 for label in self.labels},
+            "input_text": input_text,
+            "backend": self.backend,
+            "fallback_reason": "classifier_unavailable",
+        }
+
+    def _predict_llm(
+        self,
+        normalized_query: str,
+        input_text: str,
+    ) -> Dict[str, Any]:
+        """使用 LLM API 进行分类"""
+        prompt = f"""分析以下用户问题，判断其类型：
+
+问题：{normalized_query}
+
+请从以下三个类别中选择一个：
+- service：客服服务类问题（如退款、投诉、发票、物流、安装、售后等）
+- manual：产品使用类问题（如说明书、操作步骤、部件功能、设置方法等）
+- mixed：混合问题（同时涉及客服服务和产品使用）
+
+只输出一个词：service、manual 或 mixed。"""
+
+        try:
+            response = self._llm_client.chat.completions.create(
+                model=settings.llm_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=20,
+                temperature=0.0,
+            )
+            result = response.choices[0].message.content.strip().lower()
+
+            # 解析结果
+            if "service" in result and "manual" not in result:
+                label = "service"
+            elif "manual" in result and "service" not in result:
+                label = "manual"
+            elif "mixed" in result:
+                label = "mixed"
+            else:
+                # 解析失败，使用规则
+                return {
+                    "available": False,
+                    "label": None,
+                    "confidence": 0.0,
+                    "probs": {label: 0.0 for label in self.labels},
+                    "input_text": input_text,
+                    "backend": self.backend,
+                    "fallback_reason": "llm_parse_error",
+                }
+
+            return {
+                "available": True,
+                "label": label,
+                "confidence": 0.8,
+                "probs": {label: 0.8 if label == l else 0.1 for l in self.labels},
+                "input_text": input_text,
+                "backend": self.backend,
+                "fallback_reason": "",
+            }
+        except Exception as exc:
+            logger.warning(f"LLM 分类失败: {exc}")
             return {
                 "available": False,
                 "label": None,
@@ -317,13 +407,13 @@ class RouteClassifier:
                 "probs": {label: 0.0 for label in self.labels},
                 "input_text": input_text,
                 "backend": self.backend,
-                "fallback_reason": "classifier_unavailable",
+                "fallback_reason": "llm_error",
             }
 
+    def _predict_onnx(self, input_text: str, feature_vector: np.ndarray) -> Dict[str, Any]:
+        """使用 ONNX 模型进行分类"""
         try:
-            # 获取ONNX模型输入张量名称
             input_name = self.session.get_inputs()[0].name
-            # 执行推理: 输入(batch=1, dim) -> 输出(batch=1, num_labels)
             outputs = self.session.run(None, {input_name: feature_vector.reshape(1, -1).astype(np.float32)})
             probs = np.asarray(outputs[0])[0]
             best_idx = int(np.argmax(probs))
@@ -342,7 +432,7 @@ class RouteClassifier:
                 "fallback_reason": "",
             }
         except Exception as exc:
-            logger.warning(f"路由分类器推理失败，将回退规则路由: {exc}")
+            logger.warning(f"路由分类器 ONNX 推理失败: {exc}")
             return {
                 "available": False,
                 "label": None,
@@ -350,7 +440,7 @@ class RouteClassifier:
                 "probs": {label: 0.0 for label in self.labels},
                 "input_text": input_text,
                 "backend": self.backend,
-                "fallback_reason": "classifier_runtime_error",
+                "fallback_reason": "onnx_error",
             }
 
 

@@ -623,7 +623,7 @@ def main():
     )
     parser.add_argument(
         "--backend",
-        choices=["hashing", "sentence_transformer"],
+        choices=["hashing", "sentence_transformer", "transformers"],
         default=None,
         help="嵌入后端，hashing更省内存，适合Cursor终端和低内存环境"
     )
