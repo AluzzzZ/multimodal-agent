@@ -127,3 +127,4 @@ docs/build/
 
 # Test artifacts
 tests/test_question.py
+*.csv
