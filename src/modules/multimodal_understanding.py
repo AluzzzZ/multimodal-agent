@@ -15,7 +15,7 @@ from PIL import Image
 from loguru import logger
 
 from config import settings
-from src.modules.understanding_types import MultimodalUnderstandingResult
+from src.modules.understanding_types import MultimodalUnderstandingResult, ProductCandidate
 from src.utils.domain_knowledge import (
     ALIAS_TO_PRODUCT,
     match_product_alias,
@@ -31,6 +31,73 @@ from src.utils.domain_knowledge import (
     CAPTION_PRODUCT_TYPE_MAP,
 )
 from src.modules.vlm_understanding import VLMUnderstandingEngine
+
+
+# ---------------------------------------------------------------------------
+# 模块级 SentenceTransformer 单例（避免每次调用重复加载模型）
+# ---------------------------------------------------------------------------
+_sem_encoder = None
+_product_desc_map: Dict[str, str] = {}
+_product_desc_embs: Optional[np.ndarray] = None
+
+
+def _ensure_sem_encoder() -> Optional[Any]:
+    """延迟初始化语义编码器，单例模式。"""
+    global _sem_encoder, _product_desc_map, _product_desc_embs
+    if _sem_encoder is not None:
+        return _sem_encoder
+    try:
+        from sentence_transformers import SentenceTransformer
+    except Exception:
+        return None
+
+    try:
+        device = settings.embedding_device
+        _sem_encoder = SentenceTransformer(
+            "paraphrase-multilingual-MiniLM-L12-v2",
+            device=device,
+        )
+        _product_desc_map = {
+            "VR头显": "VR头显 虚拟现实 头戴显示器",
+            "遥控器": "遥控器 空调遥控 红外遥控",
+            "健身器材": "健身器材 动感单车 跑步机 健身设备",
+            "健身追踪器": "健身追踪器 智能手环 运动手环",
+            "智能手表": "智能手表 电子手表 手环",
+            "空调": "空调 室内机 室外机 冷气机",
+            "空气净化器": "空气净化器 净化器 空气过滤器",
+            "键盘": "键盘 机械键盘 功能键盘",
+            "鼠标": "鼠标 蓝牙鼠标 无线鼠标",
+            "路由器": "路由器 WiFi路由器 网络设备",
+            "相机": "相机 快门 镜头",
+            "投影仪": "投影仪 投影机 投影",
+            "耳机": "耳机 蓝牙耳机 头戴耳机",
+            "电钻": "电钻 电动工具 手电钻",
+            "冰箱": "冰箱 冷藏柜 冷柜",
+            "烤箱": "烤箱 微波炉 空气炸锅",
+            "洗碗机": "洗碗机",
+            "洗衣机": "洗衣机",
+            "吸尘器": "吸尘器 扫地机 清洁机",
+            "发电机": "发电机 引擎 电机",
+            "水泵": "水泵 抽水机",
+            "咖啡机": "咖啡机 意式咖啡机",
+            "吹风机": "吹风机",
+            "电暖器": "电暖器 暖气机 电热器",
+            "可编程温控器": "温控器 恒温器 智能温控",
+            "摩托艇": "摩托艇 船 汽艇",
+            "儿童电动摩托车": "儿童摩托车 儿童电动车",
+            "蓝牙激光鼠标": "蓝牙鼠标 无线鼠标",
+            "蒸汽清洁机": "蒸汽清洁机 蒸汽拖把",
+            "人体工学椅": "人体工学椅 办公椅",
+            "游戏手柄": "游戏手柄 手柄 游戏控制器",
+        }
+        _product_desc_embs = _sem_encoder.encode(
+            list(_product_desc_map.values()), normalize_embeddings=True
+        )
+        logger.info("语义编码器 paraphrase-multilingual-MiniLM-L12-v2 加载完成")
+        return _sem_encoder
+    except Exception:
+        _sem_encoder = None
+        return None
 
 
 class TextParser:
@@ -477,7 +544,7 @@ class MultimodalUnderstanding:
         return {
             "text_analysis": {
                 "intent": mm_result.evidence_type,
-                "entities": mm_result.product_candidates,
+                "entities": [c.name for c in mm_result.product_candidates],
                 "questions": [mm_result.normalized_query] if mm_result.normalized_query else [],
                 "requires_images": bool(mm_result.image_tags),
                 "confidence": mm_result.confidence,
@@ -487,7 +554,7 @@ class MultimodalUnderstanding:
             ],
             "combined_intent": {
                 "primary_intent": mm_result.evidence_type,
-                "entities": mm_result.product_candidates,
+                "entities": [c.name for c in mm_result.product_candidates],
                 "questions": [mm_result.normalized_query] if mm_result.normalized_query else [],
                 "requires_images": bool(mm_result.image_tags),
                 "confidence": mm_result.confidence,
@@ -600,7 +667,21 @@ class MultimodalUnderstanding:
             question, image_tags, history_context=history_context
         )
         visual_intents = self._infer_visual_intents(question, image_tags)
-        evidence_type = self._infer_evidence_type(question, image_tags, product_candidates)
+        evidence_scores = self._score_evidence_type(
+            question,
+            image_tags,
+            product_candidates,
+            visual_intents=visual_intents,
+            history_context=history_context,
+        )
+        evidence_type = self._infer_evidence_type(
+            question,
+            image_tags,
+            product_candidates,
+            visual_intents=visual_intents,
+            history_context=history_context,
+            evidence_scores=evidence_scores,
+        )
 
         return MultimodalUnderstandingResult(
             normalized_query=normalized,
@@ -613,6 +694,7 @@ class MultimodalUnderstanding:
             notes={
                 "images_provided": len(images) if images else 0,
                 "history_turns_used": history_context.get("turns_used", 0) if history_context else 0,
+                "evidence_scoring": evidence_scores,
             },
             referenced_previous_object=ref_obj,
             requires_history_resolution=needs_history,
@@ -676,10 +758,14 @@ class MultimodalUnderstanding:
         """
         rule_result = self._analyze_via_rule(question, images, history)
 
-        # product_candidates: 合并去重
-        merged_products = list(dict.fromkeys(
-            vlm_result.product_candidates + rule_result.product_candidates
-        ))[:5]
+        # product_candidates: 按名称去重，保留最高分，按分数降序
+        all_candidates = vlm_result.product_candidates + rule_result.product_candidates
+        best_by_name: Dict[str, ProductCandidate] = {}
+        for c in all_candidates:
+            existing = best_by_name.get(c.name)
+            if existing is None or c.score > existing.score:
+                best_by_name[c.name] = c
+        merged_products = sorted(best_by_name.values(), key=lambda c: c.score, reverse=True)[:5]
 
         # image_tags: 合并去重
         merged_tags = list(dict.fromkeys(
@@ -815,7 +901,7 @@ class MultimodalUnderstanding:
             if role == "助手" and not recent_product:
                 candidates = self._infer_product_candidates(content, [])
                 if candidates:
-                    recent_product = candidates[0]
+                    recent_product = candidates[0].name
 
         summary = "；".join(parts)
         return {
@@ -907,18 +993,10 @@ class MultimodalUnderstanding:
         all_tags: List[str] = []
         for img in images[:3]:  # 最多处理 3 张
             try:
-                # Step 1: 生成图片 caption；mock caption 作为一等输入单独处理
+                # Step 1: 生成图片 caption；mock caption 直接使用，不走 VLM 增强
                 mock_caption = self.image_parser._extract_mock_caption_text(img)
                 if mock_caption is not None:
                     caption = mock_caption
-                    if settings.vision_llm_enabled:
-                        original_desc = mock_caption
-                        enhanced_caption = self.image_parser._caption_via_text_enhancement(original_desc)
-                        if enhanced_caption and enhanced_caption != original_desc:
-                            caption = enhanced_caption
-                            logger.debug(f"Vision LLM 增强: {original_desc[:50]} -> {caption[:50]}")
-                        else:
-                            caption = original_desc
                 else:
                     caption = self.image_parser.describe_image(img)
 
@@ -999,60 +1077,14 @@ class MultimodalUnderstanding:
         """
         用语义相似度对 caption 中的中文术语做二次匹配，增强关键词匹配的召回率。
 
-        构建产品描述词典 → 编码为向量 → 余弦相似度排序 → 阈值截断。
-        仅在语义模型可用且设备为 CPU/CUDA 时启用（无依赖则静默跳过）。
+        模块级单例 _ensure_sem_encoder() 保证模型只加载一次，
+        避免每次图片都重新加载 SentenceTransformer（199 层，约 30s/次）。
         """
-        try:
-            from sentence_transformers import SentenceTransformer
-        except Exception:
+        sem = _ensure_sem_encoder()
+        if sem is None or _product_desc_embs is None:
             return
 
         try:
-            if not hasattr(self, "_sem_encoder") or self._sem_encoder is None:
-                device = settings.embedding_device
-                self._sem_encoder = SentenceTransformer(
-                    "paraphrase-multilingual-MiniLM-L12-v2",
-                    device=device,
-                )
-
-                # 产品描述短句词典（用于语义相似度匹配）
-                self._product_desc_map: Dict[str, str] = {
-                    "VR头显": "VR头显 虚拟现实 头戴显示器",
-                    "遥控器": "遥控器 空调遥控 红外遥控",
-                    "健身器材": "健身器材 动感单车 跑步机 健身设备",
-                    "健身追踪器": "健身追踪器 智能手环 运动手环",
-                    "智能手表": "智能手表 电子手表 手环",
-                    "空调": "空调 室内机 室外机 冷气机",
-                    "空气净化器": "空气净化器 净化器 空气过滤器",
-                    "键盘": "键盘 键盘 机械键盘 功能键盘",
-                    "鼠标": "鼠标 蓝牙鼠标 无线鼠标",
-                    "路由器": "路由器 WiFi路由器 网络设备",
-                    "相机": "相机 相机 快门 镜头",
-                    "投影仪": "投影仪 投影机 投影",
-                    "耳机": "耳机 蓝牙耳机 头戴耳机",
-                    "电钻": "电钻 电动工具 手电钻",
-                    "冰箱": "冰箱 冷藏柜 冷柜",
-                    "烤箱": "烤箱 微波炉 空气炸锅",
-                    "洗碗机": "洗碗机 洗碗机器",
-                    "洗衣机": "洗衣机 洗衣机器",
-                    "吸尘器": "吸尘器 扫地机 清洁机",
-                    "发电机": "发电机 引擎 电机",
-                    "水泵": "水泵 抽水机",
-                    "咖啡机": "咖啡机 意式咖啡机",
-                    "吹风机": "吹风机 吹风机",
-                    "电暖器": "电暖器 暖气机 电热器",
-                    "可编程温控器": "温控器 恒温器 智能温控",
-                    "摩托艇": "摩托艇 船 汽艇",
-                    "儿童电动摩托车": "儿童摩托车 儿童电动车",
-                    "蓝牙激光鼠标": "蓝牙鼠标 无线鼠标",
-                    "蒸汽清洁机": "蒸汽清洁机 蒸汽拖把",
-                    "人体工学椅": "人体工学椅 办公椅 人体工学椅",
-                    "游戏手柄": "游戏手柄 手柄 游戏控制器",
-                }
-                self._product_desc_embs = self._sem_encoder.encode(
-                    list(self._product_desc_map.values()), normalize_embeddings=True
-                )
-
             # 提取 caption 中 2-8 字的中文术语（与原逻辑一致）
             chinese_terms = re.findall(r"[\u4e00-\u9fff]{2,8}", caption)
             filtered = []
@@ -1070,19 +1102,17 @@ class MultimodalUnderstanding:
             if not filtered:
                 return
 
-            term_embs = self._sem_encoder.encode(filtered, normalize_embeddings=True)
-            sim_matrix = np.dot(term_embs, self._product_desc_embs.T)
+            term_embs = sem.encode(filtered, normalize_embeddings=True)
+            sim_matrix = np.dot(term_embs, _product_desc_embs.T)
 
             for i, term in enumerate(filtered):
-                # 取相似度最高的标签
-                best_score = sim_matrix[i].max()
+                best_score = float(sim_matrix[i].max())
                 if best_score < 0.45:
                     continue
-                best_product = list(self._product_desc_map.keys())[int(np.argmax(sim_matrix[i]))]
+                best_product = list(_product_desc_map.keys())[int(np.argmax(sim_matrix[i]))]
                 if best_product not in tags:
                     tags.append(best_product)
         except Exception:
-            # 语义匹配失败时静默降级，不影响主流程
             pass
 
     def _extract_tags_from_question(self, question: str) -> List[str]:
@@ -1133,8 +1163,13 @@ class MultimodalUnderstanding:
         question: str,
         image_tags: List[str],
         history_context: Optional[Dict[str, Any]] = None,
-    ) -> List[str]:
-        """从问题和图片标签中推断候选产品名。统一使用 domain_knowledge 中的别名表。"""
+    ) -> List["ProductCandidate"]:
+        """
+        从问题和图片标签中推断候选产品名，返回带分数和来源的候选列表。
+
+        置信度：文本别名匹配(1.0) > 图片标签推断(0.7) > 历史上下文(0.5)。
+        按分数降序、去重后最多返回 5 个。
+        """
         # Step 1: 从问题中提取产品名（精确匹配，优先级最高）
         question_matched = match_product_alias(question)
 
@@ -1146,16 +1181,38 @@ class MultimodalUnderstanding:
                 if product and product not in image_matched:
                     image_matched.append(product)
 
-        # 合并：问题匹配优先
-        result = list(dict.fromkeys(question_matched + image_matched))
-
-        # 从历史上下文中补充（兜底）
+        # Step 3: 从历史上下文中补充（兜底）
+        history_product = None
         if history_context:
-            recent_product = history_context.get("recent_product")
-            if recent_product and recent_product not in result:
-                result.append(recent_product)
+            recent = history_context.get("recent_product")
+            if isinstance(recent, ProductCandidate):
+                history_product = recent.name
+            elif recent:
+                history_product = str(recent)
 
-        return result[:5]
+        # 按分数降序合并（去重）
+        score_map: Dict[str, float] = {}
+        for name in question_matched:
+            score_map[name] = max(score_map.get(name, 0), 1.0)
+        for name in image_matched:
+            score_map[name] = max(score_map.get(name, 0), 0.7)
+        if history_product:
+            score_map[history_product] = max(score_map.get(history_product, 0), 0.5)
+
+        sorted_names = sorted(score_map.keys(), key=lambda n: score_map[n], reverse=True)
+        return [
+            ProductCandidate(name=n, score=score_map[n], source=self._candidate_source(n, question_matched, image_matched, history_product))
+            for n in sorted_names[:5]
+        ]
+
+    def _candidate_source(self, name: str, text_matched: List[str], image_matched: List[str], history_product: Optional[str]) -> str:
+        if name in text_matched:
+            return "text_alias"
+        if name in image_matched:
+            return "image_tag"
+        if name == history_product:
+            return "history"
+        return "text_alias"
 
     def _infer_visual_intents(self, question: str, image_tags: List[str]) -> List[str]:
         """从问题和图片标签中推断视觉意图（中英双语）。数据来源统一为 domain_knowledge。"""
@@ -1175,22 +1232,296 @@ class MultimodalUnderstanding:
 
         return intents[:5]
 
+    @staticmethod
+    def _collect_keyword_hits(text: str, keywords: List[str]) -> List[str]:
+        """按顺序收集命中的关键词，避免重复计数。"""
+        lowered = (text or "").lower()
+        hits: List[str] = []
+        for kw in keywords:
+            kw_lower = kw.lower()
+            if kw_lower and kw_lower in lowered and kw not in hits:
+                hits.append(kw)
+        return hits
+
+    @staticmethod
+    def _collect_tag_hits(tags: List[str], keywords: List[str]) -> List[str]:
+        """从图片标签中收集命中的标签关键词。"""
+        if not tags:
+            return []
+
+        hits: List[str] = []
+        for tag in tags:
+            tag_lower = str(tag).lower()
+            for kw in keywords:
+                kw_lower = kw.lower()
+                if kw_lower and kw_lower in tag_lower and kw not in hits:
+                    hits.append(kw)
+        return hits
+
+    def _score_evidence_type(
+        self,
+        question: str,
+        image_tags: List[str],
+        product_candidates: List["ProductCandidate"],
+        visual_intents: Optional[List[str]] = None,
+        history_context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        对 evidence_type 做多信号打分。
+
+        目标：
+        - service/manual 使用独立分数累积，避免只靠关键词数量比较
+        - mixed 只有在两侧证据都成立时才触发，不再用“有图就 mixed”
+        - 输出调试信息，方便离线评测和调参
+        """
+        text = (question or "").strip()
+        lowered = text.lower()
+        visual_intents = visual_intents or []
+
+        strong_service_hits = self._collect_keyword_hits(
+            lowered,
+            [
+                "退款", "退货", "换货", "发票", "物流", "运费", "到账",
+                "订单", "发货", "揽收", "配送", "补发", "补寄",
+                "投诉", "售后", "客服", "保修", "质保", "赔偿",
+                "假货", "正品", "真假", "乡镇", "签收", "维修费用", "人为损坏",
+                "上门服务", "说明书补发", "再发一份", "发一份", "电子版说明书",
+            ],
+        )
+        weak_service_hits = self._collect_keyword_hits(
+            lowered,
+            [
+                kw for kw in ROUTE_SERVICE_HINTS
+                if kw not in strong_service_hits
+            ],
+        )
+
+        strong_manual_hits = self._collect_keyword_hits(
+            lowered,
+            [
+                "说明书", "手册", "指示灯", "按钮", "按键", "图示",
+                "配图", "操作面板", "遥控器", "滤网", "表带",
+                "故障代码", "报码", "闪烁", "充电", "安装",
+                "清洁", "保养", "更换", "设置", "步骤", "模式",
+                "怎么用", "如何使用", "滤芯", "水质", "调温度",
+                "温度", "制冷", "不制冷", "不亮", "怎么调",
+                "充不进电", "不开机", "没反应", "无反应", "不工作",
+            ],
+        )
+        weak_manual_hits = self._collect_keyword_hits(
+            lowered,
+            [
+                kw for kw in ROUTE_MANUAL_HINTS
+                if kw not in strong_manual_hits
+            ] + ["怎么", "如何", "在哪", "哪里", "哪个", "位置", "操作"],
+        )
+
+        manual_tag_hits = self._collect_tag_hits(
+            image_tags,
+            [
+                "指示灯", "按钮", "按键", "控制面板", "操作面板",
+                "遥控器", "表带", "屏幕", "充电器", "滤网",
+                "说明书", "图示", "示意图", "型号", "铭牌",
+                "摇杆",
+            ],
+        )
+        contextual_manual_tag_hits = self._collect_tag_hits(
+            image_tags,
+            ["标签", "面板", "配件"],
+        )
+        service_tag_hits = self._collect_tag_hits(
+            image_tags,
+            [
+                "包装破损", "破损", "物流", "面单", "订单", "发票",
+                "维修单", "售后", "快递", "污渍", "拆封",
+            ],
+        )
+        contextual_service_tag_hits = self._collect_tag_hits(
+            image_tags,
+            ["包装", "包装盒", "标签", "品牌标识", "配件"],
+        )
+
+        manual_visual_hits = [
+            intent for intent in visual_intents
+            if intent in {
+                "查看位置", "查看指示灯", "查看按钮", "查看说明书",
+                "查看图示", "查看型号", "查看屏幕", "查看警告",
+                "查看表带", "查看摇杆",
+            }
+        ]
+        service_visual_hits = [
+            intent for intent in visual_intents
+            if intent in {
+                "查看物流凭证", "查看订单信息", "查看损坏情况", "查看维修单据",
+            }
+        ]
+
+        service_score = 0.0
+        manual_score = 0.0
+        mixed_score = 0.0
+
+        has_doc_delivery_service = (
+            ("说明书" in text or "手册" in text)
+            and any(token in text for token in ("再发", "补发", "发一份", "发给我", "发我", "电子版", "再给我"))
+        )
+        has_manual_symptom_phrase = any(
+            token in text for token in (
+                "灯一直闪", "灯闪", "不亮", "怎么调温度", "调温度",
+                "滤芯多久换", "滤网怎么清洗", "充不进电", "不开机",
+                "没反应", "无反应", "不工作",
+            )
+        )
+        has_usability_friction = any(
+            token in text for token in ("找不到", "没找到", "对不上", "没有这个", "看不懂", "不一致")
+        )
+
+        service_score += min(0.56, len(strong_service_hits) * 0.28)
+        service_score += min(0.24, len(weak_service_hits) * 0.06)
+
+        manual_score += min(0.56, len(strong_manual_hits) * 0.28)
+        manual_score += min(0.24, len(weak_manual_hits) * 0.06)
+
+        service_score += min(0.18, len(service_tag_hits) * 0.09)
+        manual_score += min(0.18, len(manual_tag_hits) * 0.09)
+        if strong_service_hits or weak_service_hits or has_doc_delivery_service or has_usability_friction:
+            service_score += min(0.12, len(contextual_service_tag_hits) * 0.06)
+        if (
+            not strong_service_hits
+            and not has_doc_delivery_service
+            and (strong_manual_hits or weak_manual_hits or manual_visual_hits or product_candidates or has_manual_symptom_phrase)
+        ):
+            manual_score += min(0.10, len(contextual_manual_tag_hits) * 0.05)
+
+        service_score += min(0.12, len(service_visual_hits) * 0.12)
+        manual_score += min(0.20, len(manual_visual_hits) * 0.10)
+
+        if product_candidates:
+            manual_score += 0.18
+
+        if has_doc_delivery_service:
+            service_score += 0.24
+            manual_score = max(0.0, manual_score - 0.08)
+
+        if has_manual_symptom_phrase and (manual_tag_hits or manual_visual_hits or product_candidates):
+            manual_score += 0.12
+
+        if has_usability_friction and (strong_manual_hits or weak_manual_hits or manual_tag_hits):
+            service_score += 0.14
+            mixed_score += 0.10
+
+        has_history_ref = bool(re.search(r"(刚才|上面|之前|那个|这个|第二个|第三个)", text))
+        if history_context:
+            recent_product = history_context.get("recent_product")
+            summary = str(history_context.get("summary", "") or "")
+            if recent_product and (has_history_ref or not strong_service_hits) and not has_doc_delivery_service:
+                manual_score += 0.08
+            if has_history_ref and self._collect_keyword_hits(summary, ROUTE_SERVICE_HINTS):
+                service_score += 0.06
+
+        has_mixed_connector = any(
+            token in text for token in ("顺便", "另外", "同时", "以及", "还想问", "还能", "再问", "先", "再", "然后", "一边", "同时想问")
+        )
+
+        segments = [
+            segment.strip()
+            for segment in re.split(r"[\n；;。！？?!]+", text)
+            if segment.strip()
+        ]
+        has_service_segment = False
+        has_manual_segment = False
+        for segment in segments:
+            seg_service = bool(self._collect_keyword_hits(segment, ROUTE_SERVICE_HINTS))
+            seg_manual = bool(
+                self._collect_keyword_hits(segment, ROUTE_MANUAL_HINTS)
+                or self._collect_keyword_hits(segment, ["滤芯", "滤网", "调温度", "温度", "按钮", "指示灯", "说明书", "步骤", "清洗"])
+            )
+            has_service_segment = has_service_segment or seg_service
+            has_manual_segment = has_manual_segment or seg_manual
+
+        if has_mixed_connector and service_score >= 0.22 and manual_score >= 0.22:
+            mixed_score += 0.24
+
+        manual_side_present = bool(has_manual_segment or manual_tag_hits or manual_visual_hits or has_manual_symptom_phrase)
+        service_side_present = bool(has_service_segment or strong_service_hits or weak_service_hits or service_tag_hits or has_doc_delivery_service or has_usability_friction)
+        if service_side_present and manual_side_present and (len(segments) > 1 or has_mixed_connector):
+            mixed_score += 0.24
+
+        service_score = min(service_score, 1.0)
+        manual_score = min(manual_score, 1.0)
+        mixed_score = min(mixed_score, 1.0)
+
+        return {
+            "service_score": round(service_score, 4),
+            "manual_score": round(manual_score, 4),
+            "mixed_score": round(mixed_score, 4),
+            "debug": {
+                "strong_service_hits": strong_service_hits,
+                "weak_service_hits": weak_service_hits,
+                "strong_manual_hits": strong_manual_hits,
+                "weak_manual_hits": weak_manual_hits,
+                "service_tag_hits": service_tag_hits,
+                "contextual_service_tag_hits": contextual_service_tag_hits,
+                "manual_tag_hits": manual_tag_hits,
+                "contextual_manual_tag_hits": contextual_manual_tag_hits,
+                "service_visual_hits": service_visual_hits,
+                "manual_visual_hits": manual_visual_hits,
+                "has_product_candidates": bool(product_candidates),
+                "has_history_reference": has_history_ref,
+                "has_mixed_connector": has_mixed_connector,
+                "has_service_segment": has_service_segment,
+                "has_manual_segment": has_manual_segment,
+                "has_doc_delivery_service": has_doc_delivery_service,
+                "has_manual_symptom_phrase": has_manual_symptom_phrase,
+                "has_usability_friction": has_usability_friction,
+            },
+        }
+
     def _infer_evidence_type(
         self,
         question: str,
         image_tags: List[str],
-        product_candidates: List[str],
+        product_candidates: List["ProductCandidate"],
+        visual_intents: Optional[List[str]] = None,
+        history_context: Optional[Dict[str, Any]] = None,
+        evidence_scores: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """判断问题最可能需要哪种证据来源。关键词来源统一为 domain_knowledge。"""
-        svc_hits = sum(1 for kw in ROUTE_SERVICE_HINTS if kw in question)
-        man_hits = sum(1 for kw in ROUTE_MANUAL_HINTS if kw in question)
+        """根据打分结果判断问题最可能需要哪种证据来源。"""
+        scored = evidence_scores or self._score_evidence_type(
+            question,
+            image_tags,
+            product_candidates,
+            visual_intents=visual_intents,
+            history_context=history_context,
+        )
 
-        if svc_hits > man_hits:
-            return "service_like"
-        if man_hits > svc_hits:
-            return "manual_like"
-        if image_tags or product_candidates:
+        service_score = float(scored.get("service_score", 0.0))
+        manual_score = float(scored.get("manual_score", 0.0))
+        mixed_score = float(scored.get("mixed_score", 0.0))
+
+        if service_score < 0.2 and manual_score < 0.2:
+            return "unknown"
+
+        if service_score >= 0.42 and manual_score >= 0.42 and abs(service_score - manual_score) <= 0.18:
             return "mixed_like"
+
+        if mixed_score >= 0.2 and service_score >= 0.26 and manual_score >= 0.26:
+            return "mixed_like"
+
+        if service_score >= manual_score + 0.12:
+            return "service_like"
+
+        if manual_score >= service_score + 0.12:
+            return "manual_like"
+
+        if manual_score >= 0.28 and product_candidates:
+            return "manual_like"
+
+        if service_score >= 0.28:
+            return "service_like"
+
+        if manual_score >= 0.28:
+            return "manual_like"
+
         return "unknown"
 
 

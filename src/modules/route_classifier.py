@@ -368,7 +368,10 @@ class RouteClassifier:
                 max_tokens=20,
                 temperature=0.0,
             )
-            result = response.choices[0].message.content.strip().lower()
+            result_raw = response.choices[0].message.content
+            if result_raw is None:
+                raise ValueError("LLM returned empty response")
+            result = result_raw.strip().lower()
 
             # 解析结果
             if "service" in result and "manual" not in result:

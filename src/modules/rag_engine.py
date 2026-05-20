@@ -1108,8 +1108,9 @@ class DashscopeEmbeddingModel:
         all_embeddings = []
 
         # 分批处理
-        for i in range(0, len(texts), batch_size):
-            batch = texts[i:i + batch_size]
+        dashscope_batch_size = 10
+        for i in range(0, len(texts), dashscope_batch_size):
+            batch = texts[i:i + dashscope_batch_size]
 
             try:
                 response = client.embeddings.create(

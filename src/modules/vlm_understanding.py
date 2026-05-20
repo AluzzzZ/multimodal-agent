@@ -28,7 +28,7 @@ from PIL import Image
 from loguru import logger
 
 from config import settings
-from src.modules.understanding_types import MultimodalUnderstandingResult
+from src.modules.understanding_types import MultimodalUnderstandingResult, ProductCandidate
 from src.utils.domain_knowledge import (
     PRODUCT_ALIAS_MAP,
     ALIAS_TO_PRODUCT,
@@ -50,8 +50,7 @@ _VLM_SYSTEM_PROMPT = """你是客服多模态理解器，负责从用户问题�
 字段说明：
 - normalized_query: 归一化后的查询文本，提取核心问题，去除口语化表达
 - language: 语言，"zh" 或 "en"
-- product_candidates: 候选产品名列表，最多5个，从以下产品中选择：
-  {product_list}
+- product_candidates: 候选产品列表，最多5个。每个元素格式为：{{"name": "产品名", "score": 0.0~1.0, "source": "来源"}}。来源取以下之一：text_alias（图文联合判断）、image_tag（仅图像判断）、vlm（视觉语言模型推断）。必须从以下产品中选择：{product_list}
 - image_tags: 图片中提取的标签，最多12个，分类如下：
   部件词：指示灯、按钮、表带、屏幕、面板、充电器、滤网、电池 等
   状态词：充电中、待机、亮红灯、闪烁、破损、过热、故障 等
@@ -77,6 +76,8 @@ def _build_user_prompt(
     if history_context:
         summary = history_context.get("summary", "")
         recent_product = history_context.get("recent_product", "")
+        if isinstance(recent_product, ProductCandidate):
+            recent_product = recent_product.name
         had_images = history_context.get("had_images", False)
         history_section = f"""
 对话历史摘要：
@@ -147,6 +148,14 @@ def _extract_json_block(text: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _clamp_confidence(value: Any, default: float = 0.5) -> float:
+    """将任意值安全转换为 [0.0, 1.0] 范围的置信度。"""
+    try:
+        return max(0.0, min(1.0, float(value)))
+    except (TypeError, ValueError):
+        return default
+
+
 def _normalize_vlm_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     """
     规范化 VLM 输出 payload：
@@ -171,25 +180,34 @@ def _normalize_vlm_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     if lang not in ("zh", "en"):
         lang = "zh"
 
-    # product_candidates：标准化为产品标准名
-    raw_products: List[str] = payload.get("product_candidates", [])
+    # product_candidates：标准化为产品标准名，保留分数和来源
+    raw_products: List[Any] = payload.get("product_candidates", [])
     if not isinstance(raw_products, list):
         raw_products = []
-    product_candidates: List[str] = []
+    product_candidates: List[Dict[str, Any]] = []
     seen_products: set = set()
     for p in raw_products[:MAX_PRODUCTS]:
-        if not isinstance(p, str) or not p.strip():
+        if isinstance(p, dict):
+            name = str(p.get("name", "")).strip()
+            score = _clamp_confidence(p.get("score"))
+            source = str(p.get("source", "vlm")).strip() or "vlm"
+        elif isinstance(p, str) and p.strip():
+            name = p.strip()
+            score = 0.8
+            source = "vlm"
+        else:
             continue
-        p = p.strip()
+        if not name:
+            continue
         # 用别名表标准化
-        normalized_p = ALIAS_TO_PRODUCT.get(p.lower(), p)
+        normalized_name = ALIAS_TO_PRODUCT.get(name.lower(), name)
         # 用产品表过滤（只保留已知产品）
-        if normalized_p in PRODUCT_ALIAS_MAP and normalized_p not in seen_products:
-            product_candidates.append(normalized_p)
-            seen_products.add(normalized_p)
-        elif p in PRODUCT_ALIAS_MAP and p not in seen_products:
-            product_candidates.append(p)
-            seen_products.add(p)
+        if normalized_name in PRODUCT_ALIAS_MAP and normalized_name not in seen_products:
+            product_candidates.append({"name": normalized_name, "score": score, "source": source})
+            seen_products.add(normalized_name)
+        elif name in PRODUCT_ALIAS_MAP and name not in seen_products:
+            product_candidates.append({"name": name, "score": score, "source": source})
+            seen_products.add(name)
 
     # image_tags
     raw_tags: List[str] = payload.get("image_tags", [])
@@ -248,17 +266,15 @@ def _normalize_vlm_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     requires_history = bool(raw_history)
 
     # confidence
-    raw_conf = payload.get("confidence", 0.5)
-    try:
-        confidence = float(raw_conf)
-        confidence = max(0.0, min(1.0, confidence))
-    except (TypeError, ValueError):
-        confidence = 0.5
+    confidence = _clamp_confidence(payload.get("confidence", 0.5))
 
     return {
         "normalized_query": normalized,
         "language": lang,
-        "product_candidates": product_candidates,
+        "product_candidates": [
+            ProductCandidate(name=p["name"], score=p["score"], source=p["source"])
+            for p in product_candidates
+        ],
         "image_tags": image_tags,
         "visual_intents": visual_intents,
         "evidence_type": evidence_type,

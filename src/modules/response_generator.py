@@ -301,7 +301,10 @@ class ResponseGenerator:
             # 禁用幻觉检测时使用默认值
             result["confidence"] = 0.7
 
-        # ========== Step 6: 提取相关图片 ==========
+        # ========== Step 6: 输出去重清洗 ==========
+        final_answer = self._deduplicate_response(final_answer)
+
+        # ========== Step 7: 提取相关图片 ==========
         # 从检索结果中提取图片ID，最多返回5张
         result["images"] = list(set(retrieved_images))[:5]
         result["sources"] = all_sources
@@ -425,7 +428,8 @@ class ResponseGenerator:
             if mm_result.image_tags:
                 mm_parts.append(f"图片标签: {' / '.join(mm_result.image_tags)}")
             if mm_result.product_candidates:
-                mm_parts.append(f"候选产品: {' / '.join(mm_result.product_candidates)}")
+                names = [c.name for c in mm_result.product_candidates]
+                mm_parts.append(f"候选产品: {' / '.join(names)}")
             if mm_result.visual_intents:
                 mm_parts.append(f"视觉意图: {' / '.join(mm_result.visual_intents)}")
             if mm_parts:
@@ -1266,6 +1270,56 @@ class ResponseGenerator:
             for idx in range(len(segment) - 1):
                 terms.add(segment[idx: idx + 2])
         return terms
+
+    def _deduplicate_response(self, text: str) -> str:
+        """
+        对生成的回复进行去重清洗，消除重复句、重复 bullet 和格式抖动。
+
+        处理策略:
+        1. 连续重复句子（去重，保留首次出现）
+        2. 连续重复 bullet 项（合并去重）
+        3. 连续空行（压缩为单行）
+        4. 尾部标点清理（移除末尾多余标点）
+        """
+        if not text:
+            return text
+
+        lines = text.splitlines()
+        cleaned_lines: List[str] = []
+        seen_sentences: set[str] = set()
+        seen_bullets: set[str] = set()
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+
+            # 检测连续重复句子（全文级去重，消除 "信用卡：可能 3-15 个工作日" ×6 这样的重复）
+            sentence_key = stripped.lower()
+            if sentence_key in seen_sentences:
+                continue
+            seen_sentences.add(sentence_key)
+
+            # 检测重复 bullet 项
+            bullet_key = re.sub(r"^\s*[\d一二三四五六七八九十]+[.、)）]", "", stripped).strip()
+            bullet_key = re.sub(r"^[●•·\-*]\s*", "", bullet_key).strip()
+            if bullet_key in seen_bullets and len(bullet_key) > 3:
+                continue
+            if bullet_key:
+                seen_bullets.add(bullet_key)
+
+            cleaned_lines.append(stripped)
+
+        # 合并为单文本，保持段落感
+        result = "\n".join(cleaned_lines)
+
+        # 压缩连续空行
+        result = re.sub(r"\n{3,}", "\n\n", result)
+
+        # 移除首尾空白
+        result = result.strip()
+
+        return result
 
     def generate_with_sources(
         self,

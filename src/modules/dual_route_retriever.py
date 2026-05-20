@@ -29,6 +29,7 @@ from .route_classifier import RouteClassifier, get_route_classifier
 from .route_classifier import SERVICE_HINTS, MANUAL_HINTS, MIXED_HINTS
 from src.utils.text_utils import QueryProcessor
 from src.utils.llm_corrector import get_spell_corrector
+from src.modules.understanding_types import ProductCandidate
 from src.utils.domain_knowledge import MANUAL_ALIAS_SEEDS
 
 
@@ -191,7 +192,7 @@ class DualRouteRetriever:
         images: Optional[List[str]] = None,
         normalized_query: Optional[str] = None,
         image_tags: Optional[List[str]] = None,
-        product_candidates: Optional[List[str]] = None,
+        product_candidates: Optional[List[ProductCandidate]] = None,
     ) -> Dict[str, Any]:
         """
         Args:
@@ -199,16 +200,18 @@ class DualRouteRetriever:
             images: Base64 图片列表
             normalized_query: 已归一化的查询文本（可选，传入则直接使用，不重复 normalize）
             image_tags: 视觉标签列表
-            product_candidates: 候选产品名列表
+            product_candidates: 候选产品列表（带分数和来源）
         """
         if not self._initialized:
             self.initialize()
 
         if normalized_query:
             search_query = normalized_query
+            translation_applied = False
         else:
             normalized = QueryProcessor.normalize_query_for_retrieval(query)
             search_query = normalized["normalized_query"]
+            translation_applied = normalized["translation_applied"]
 
         # 拼写纠错：纠正错别字后再进入规则匹配和检索，保护型号词
         if settings.spell_correction_enabled:
@@ -218,9 +221,13 @@ class DualRouteRetriever:
                 logger.debug(f"拼写纠错: '{original}' -> '{search_query}'")
 
         # 合并外部传入的候选手册（来自多模态理解器）
-        if product_candidates:
+        # 从 ProductCandidate 列表提取产品名
+        candidate_names: Optional[List[str]] = (
+            [c.name for c in product_candidates] if product_candidates else None
+        )
+        if candidate_names:
             detected = self._detect_manual_candidates(search_query)
-            merged = self._merge_external_manual_candidates(detected, product_candidates)
+            merged = self._merge_external_manual_candidates(detected, candidate_names)
         else:
             merged = None
 
@@ -234,7 +241,7 @@ class DualRouteRetriever:
                 search_query,
                 images=images,
                 image_tags=image_tags,
-                product_candidates=product_candidates,
+                product_candidates=candidate_names,
             )
             if self.route_classifier is not None
             else self._empty_classifier_result()
@@ -258,7 +265,7 @@ class DualRouteRetriever:
             "classifier_debug_info": classifier_result.get("debug_info"),
             "language": normalized["language"] if normalized_query is None else "zh",
             "normalized_query": search_query,
-            "translation_applied": normalized["translation_applied"] if normalized_query is None else False,
+            "translation_applied": translation_applied,
         }
 
     def _compute_rule_route_info(
@@ -468,12 +475,15 @@ class DualRouteRetriever:
         images: Optional[List[str]] = None,
         normalized_query: Optional[str] = None,
         image_tags: Optional[List[str]] = None,
-        product_candidates: Optional[List[str]] = None,
+        product_candidates: Optional[List[ProductCandidate]] = None,
         use_rerank: bool = True,
     ) -> Dict[str, Any]:
         if not self._initialized:
             self.initialize()
 
+        candidate_names: Optional[List[str]] = (
+            [c.name for c in product_candidates] if product_candidates else None
+        )
         route_info = self.route_query(
             query,
             images=images,

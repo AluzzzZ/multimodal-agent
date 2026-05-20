@@ -6,6 +6,7 @@
 import os
 from pathlib import Path
 from pydantic_settings import BaseSettings
+from pydantic import Field
 from typing import List, Optional
 
 # 项目根目录
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_title: str = "多模态客服智能体API"
     api_version: str = "1.0.0"
+    api_token: Optional[str] = Field(default=None, validation_alias="API_TOKEN")
     
     # LLM配置
     llm_provider: str = "openai"  # openai, local, anthropic
@@ -34,7 +36,7 @@ class Settings(BaseSettings):
     embedding_api_key: Optional[str] = None  # 百炼 API Key
     embedding_api_base: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     embedding_device: str = "cpu"  # cpu, cuda（仅本地模型使用）
-    embedding_batch_size: int = 16
+    embedding_batch_size: int = 10
     embedding_dim: int = 1024  # text-embedding-v3 为 1024 维
     max_seq_length: int = 2048  # 最大序列长度
 
