@@ -330,7 +330,7 @@ class ImageParser:
         else:
             self._caption_model = "rule_fallback"
             logger.info("图片描述使用规则 fallback（无视觉模型）")
-
+    
     def describe_image(self, image_data: str) -> str:
         """
         生成图片描述。
@@ -352,7 +352,7 @@ class ImageParser:
         if mock_caption is not None:
             logger.debug(f"Mock caption: {mock_caption[:100]}...")
             return mock_caption
-
+        
         try:
             if ',' in image_data:
                 image_data = image_data.split(',')[1]

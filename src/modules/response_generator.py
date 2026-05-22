@@ -76,7 +76,8 @@ class ResponseGenerator:
                     api_key=settings.llm_api_key,
                     base_url=settings.llm_base_url,
                     temperature=settings.llm_temperature,
-                    max_tokens=settings.llm_max_tokens
+                    max_tokens=settings.llm_max_tokens,
+                    request_timeout=60,
                 )
             elif settings.llm_provider == "local":
                 from langchain_community.chat_models import ChatOllama
