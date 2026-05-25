@@ -86,5 +86,5 @@ scripts/rebuild_kb_temp.py
 scripts/rebuild_kb_transformers.py
 scripts/split_english_manuals.py
 
-# Manual source files (competition data)
-手册/
+
+

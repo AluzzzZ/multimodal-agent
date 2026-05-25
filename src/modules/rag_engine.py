@@ -6,6 +6,7 @@ RAG（检索增强生成）引擎
 
 import json
 import hashlib
+import os
 import re
 import gc
 from pathlib import Path
@@ -71,7 +72,20 @@ class KnowledgeBase:
         self.embedding_model = None
         self.embedding_backend: Optional[str] = None
         self._initialized = False
-        # 混合检索：预计算的 sparse 权重（token -> 权重映射），格式为 List[Dict[str, float]]
+        # 混合检索：BM25 参数预计算
+        # _bm25_doc_tf: 每个文档的 {token: tf} 列表（与 documents 索引对应）
+        # _bm25_avgdl: 平均文档长度（字符数）
+        # _bm25_n_docs: 总文档数
+        # _bm25_idf: 全局 IDF 字典 {token: idf}
+        self._bm25_text_doc_tf: List[Dict[str, int]] = []
+        self._bm25_text_avgdl: float = 0.0
+        self._bm25_text_n_docs: int = 0
+        self._bm25_text_idf: Dict[str, float] = {}
+        self._bm25_image_doc_tf: List[Dict[str, int]] = []
+        self._bm25_image_avgdl: float = 0.0
+        self._bm25_image_n_docs: int = 0
+        self._bm25_image_idf: Dict[str, float] = {}
+        # 向后兼容旧格式（构建索引时自动迁移时清除）
         self._text_sparse_weights: List[Dict[str, float]] = []
         self._image_sparse_weights: List[Dict[str, float]] = []
 
@@ -160,6 +174,18 @@ class KnowledgeBase:
 
             return model
 
+        if settings.embedding_backend == "dashscope":
+            logger.info(
+                f"使用百炼 dashscope embedding 后端: {settings.embedding_model} "
+                f"(API: {settings.dashscope_base_url or 'https://dashscope.aliyuncs.com/compatible-mode/v1'})"
+            )
+            return DashScopeEmbeddingModel(
+                model_name=settings.embedding_model,
+                api_key=settings.dashscope_api_key,
+                api_base=settings.dashscope_base_url,
+                batch_size=settings.embedding_batch_size,
+            )
+
         raise ValueError(f"不支持的 embedding_backend: {settings.embedding_backend}")
 
     def _load_index(self):
@@ -202,14 +228,24 @@ class KnowledgeBase:
                             f"当前 embedding_backend={settings.embedding_backend} "
                             f"与索引记录的 {saved_backend} 不一致，必要时请重建索引"
                         )
-                    # 加载 sparse 权重
+                    # 加载 BM25 参数（用于混合检索）
                     if settings.enable_hybrid_retrieval:
+                        self._bm25_text_doc_tf = metadata.get("bm25_text_doc_tf", [])
+                        self._bm25_text_avgdl = metadata.get("bm25_text_avgdl", 0.0)
+                        self._bm25_text_n_docs = metadata.get("bm25_text_n_docs", 0)
+                        self._bm25_text_idf = metadata.get("bm25_text_idf", {})
+                        self._bm25_image_doc_tf = metadata.get("bm25_image_doc_tf", [])
+                        self._bm25_image_avgdl = metadata.get("bm25_image_avgdl", 0.0)
+                        self._bm25_image_n_docs = metadata.get("bm25_image_n_docs", 0)
+                        self._bm25_image_idf = metadata.get("bm25_image_idf", {})
+                        logger.info(
+                            f"加载 BM25 参数: {len(self._bm25_text_doc_tf)} 文本, "
+                            f"{len(self._bm25_image_doc_tf)} 图片"
+                        )
+                    # 向后兼容旧格式 sparse_weights（构建新索引后自动迁移）
+                    if not self._bm25_text_doc_tf:
                         self._text_sparse_weights = metadata.get("text_sparse_weights", [])
                         self._image_sparse_weights = metadata.get("image_sparse_weights", [])
-                        logger.info(
-                            f"加载 sparse 权重: {len(self._text_sparse_weights)} 文本, "
-                            f"{len(self._image_sparse_weights)} 图片"
-                        )
                 logger.info(f"加载元数据: {len(self.text_documents)} 文本, {len(self.image_documents)} 图片")
             except Exception as e:
                 logger.warning(f"元数据加载失败: {e}")
@@ -230,54 +266,52 @@ class KnowledgeBase:
         else:
             self._add_image_documents(documents)
 
-    def _compute_sparse_weights(self, texts: List[str]) -> List[Dict[str, float]]:
+    def _compute_bm25_params(
+        self,
+        texts: List[str],
+    ) -> Tuple[List[Dict[str, int]], float, int, Dict[str, float]]:
         """
-        计算文本集合的 sparse（词权重）表示，模拟 BM25 思想。
+        计算并返回标准 BM25 的全局参数。
 
-        算法：对每个文本分词，统计 token 频率（TF），并用归一化频率作为权重。
-        检索时对查询同样分词，计算与文档的交集 token 权重和作为 sparse 分数。
-
-        这使得 BGE-M3 等模型在不具备原生 sparse 输出时，
-        也能与 dense 分数加权融合，提升关键词命中场景（如"退货""退款"）的召回。
+        预计算内容:
+        1. 每个文档的 token->TF 字典列表（与 texts 索引对应）
+        2. 平均文档长度（按字符数）
+        3. 全局文档数
+        4. 每个 token 的 IDF 值
 
         Args:
             texts: 文本列表
 
         Returns:
-            每个文本的 token->权重 字典列表
+            (doc_tf_list, avgdl, n_docs, idf_dict)
         """
-        from collections import Counter
         import math
+        from collections import Counter
 
-        # 统计全局文档频率（IDF 近似）
-        all_tokens_per_doc: List[List[str]] = []
-        doc_token_sets: List[set] = []
+        n_docs = len(texts)
+        if n_docs == 0:
+            return [], 0.0, 0, {}
+
+        doc_tf_list: List[Dict[str, int]] = []
+        doc_lens: List[int] = []
+        df: Counter = Counter()
+
         for text in texts:
             tokens = self._tokenize_for_sparse(text)
-            all_tokens_per_doc.append(tokens)
-            doc_token_sets.append(set(tokens))
-
-        # 计算 IDF（简化版：log(N / df)）
-        n_docs = len(texts)
-        df: Counter = Counter()
-        for token_set in doc_token_sets:
-            for t in token_set:
+            tf = Counter(tokens)
+            doc_tf_list.append(dict(tf))
+            doc_lens.append(len(text))
+            for t in set(tokens):
                 df[t] += 1
 
-        weights_list: List[Dict[str, float]] = []
-        for tokens in all_tokens_per_doc:
-            tf = Counter(tokens)
-            doc_len = len(tokens)
-            weights: Dict[str, float] = {}
-            for token, freq in tf.items():
-                # TF-IDF 简化权重
-                idf = math.log((n_docs + 1) / (df[token] + 1)) + 1
-                # 归一化 TF（防止长文档主导）
-                norm_tf = freq / math.sqrt(doc_len) if doc_len > 0 else 0
-                weights[token] = norm_tf * idf
-            weights_list.append(weights)
+        avgdl = sum(doc_lens) / n_docs
 
-        return weights_list
+        # 标准 IDF 公式: log((N - df + 0.5) / (df + 0.5))
+        idf_dict: Dict[str, float] = {}
+        for token, doc_freq in df.items():
+            idf_dict[token] = math.log((n_docs - doc_freq + 0.5) / (doc_freq + 0.5) + 1)
+
+        return doc_tf_list, avgdl, n_docs, idf_dict
 
     def _tokenize_for_sparse(self, text: str) -> List[str]:
         """分词：支持中文（jieba）和英文/数字。"""
@@ -288,22 +322,45 @@ class KnowledgeBase:
         tokens = jieba.lcut(cleaned.lower())
         return [t for t in tokens if t.strip() and len(t) > 1]
 
-    def _compute_query_sparse_scores(
+    def _compute_query_bm25_scores(
         self,
         query: str,
-        documents: List[Document],
-        sparse_weights: List[Dict[str, float]]
+        doc_tf_list: List[Dict[str, int]],
+        avgdl: float,
+        idf_dict: Dict[str, float],
     ) -> List[float]:
         """
-        计算查询在各文档上的 sparse 分数。
+        计算查询在各文档上的标准 BM25 分数。
 
-        分数 = 查询 token 在文档权重字典中的权重之和（交集权重累加）。
+        BM25 公式:
+            score = sum_{q in query_tokens} IDF(q) * (tf * (k1+1)) / (tf + k1*(1-b+b*|D|/avgdl))
+
+        Args:
+            query: 查询文本
+            doc_tf_list: 预计算的文档 TF 字典列表
+            avgdl: 平均文档长度
+            idf_dict: 预计算的 IDF 字典
+
+        Returns:
+            每个文档的 BM25 分数列表
         """
         import jieba
-        query_tokens = set(self._tokenize_for_sparse(query))
+        k1 = settings.bm25_k1
+        b = settings.bm25_b
+
+        query_tokens = jieba.lcut(query.lower())
+        query_tokens = [t for t in query_tokens if t.strip() and len(t) > 1]
+
         scores: List[float] = []
-        for weights in sparse_weights:
-            score = sum(weights.get(t, 0.0) for t in query_tokens)
+        for doc_tf in doc_tf_list:
+            score = 0.0
+            for q in query_tokens:
+                if q in doc_tf:
+                    tf = doc_tf[q]
+                    idf = idf_dict.get(q, 0.0)
+                    doc_len = sum(doc_tf.values())
+                    len_norm = k1 * (1 - b + b * doc_len / avgdl) if avgdl > 0 else k1
+                    score += idf * (tf * (k1 + 1)) / (tf + len_norm)
             scores.append(score)
         return scores
 
@@ -333,10 +390,28 @@ class KnowledgeBase:
         self.text_embeddings.add(embeddings.astype('float32'))
         self.text_documents.extend(documents)
 
-        # 预计算 sparse 权重（用于混合检索）
+        # 预计算 BM25 参数（用于混合检索）
         if settings.enable_hybrid_retrieval:
-            sparse_weights = self._compute_sparse_weights(texts)
-            self._text_sparse_weights.extend(sparse_weights)
+            doc_tf, avgdl, n_docs, idf = self._compute_bm25_params(texts)
+            # 存储原始文档频率（df），用于加载时统一计算 IDF
+            # 这里顺便计算 IDF 并存下来（增量近似：对数域加权平均）
+            if self._bm25_text_n_docs > 0:
+                old_n = self._bm25_text_n_docs
+                # 对已有 token 做 IDF 增量加权
+                self._bm25_text_idf = {
+                    t: (
+                        self._bm25_text_idf.get(t, 0.0) * old_n
+                        + idf.get(t, 0.0) * n_docs
+                    ) / (old_n + n_docs)
+                    for t in set(self._bm25_text_idf) | set(idf)
+                }
+                total_docs = old_n + n_docs
+                self._bm25_text_avgdl = (self._bm25_text_avgdl * old_n + avgdl * n_docs) / total_docs
+            else:
+                self._bm25_text_idf = idf
+                self._bm25_text_avgdl = avgdl
+            self._bm25_text_n_docs += n_docs
+            self._bm25_text_doc_tf.extend(doc_tf)
 
         logger.debug(f"添加 {len(documents)} 个文本文档到知识库 (总计: {self.text_embeddings.ntotal})")
 
@@ -364,10 +439,25 @@ class KnowledgeBase:
         self.image_embeddings.add(embeddings.astype('float32'))
         self.image_documents.extend(documents)
 
-        # 预计算 sparse 权重
+        # 预计算 BM25 参数（用于混合检索）
         if settings.enable_hybrid_retrieval:
-            sparse_weights = self._compute_sparse_weights(texts)
-            self._image_sparse_weights.extend(sparse_weights)
+            doc_tf, avgdl, n_docs, idf = self._compute_bm25_params(texts)
+            if self._bm25_image_n_docs > 0:
+                old_n = self._bm25_image_n_docs
+                self._bm25_image_idf = {
+                    t: (
+                        self._bm25_image_idf.get(t, 0.0) * old_n
+                        + idf.get(t, 0.0) * n_docs
+                    ) / (old_n + n_docs)
+                    for t in set(self._bm25_image_idf) | set(idf)
+                }
+                total_docs = old_n + n_docs
+                self._bm25_image_avgdl = (self._bm25_image_avgdl * old_n + avgdl * n_docs) / total_docs
+            else:
+                self._bm25_image_idf = idf
+                self._bm25_image_avgdl = avgdl
+            self._bm25_image_n_docs += n_docs
+            self._bm25_image_doc_tf.extend(doc_tf)
 
         logger.debug(f"添加 {len(documents)} 个图片文档到知识库")
 
@@ -428,16 +518,18 @@ class KnowledgeBase:
             "enable_hybrid_retrieval": settings.enable_hybrid_retrieval,
             "texts": [doc.to_dict() for doc in self.text_documents],
             "images": [doc.to_dict() for doc in self.image_documents],
-            # 持久化 sparse 权重（仅保留高权重 token，节省空间）
-            "text_sparse_weights": [
-                {k: v for k, v in w.items() if v > 0.1}
-                for w in self._text_sparse_weights
-            ] if settings.enable_hybrid_retrieval else [],
-            "image_sparse_weights": [
-                {k: v for k, v in w.items() if v > 0.1}
-                for w in self._image_sparse_weights
-            ] if settings.enable_hybrid_retrieval else [],
         }
+        # 持久化 BM25 参数（用于混合检索）
+        if settings.enable_hybrid_retrieval:
+            # doc_tf 过大时，只存储 IDF 约简 token（权重 >= 1.0 的高频 token）
+            metadata["bm25_text_doc_tf"] = self._bm25_text_doc_tf
+            metadata["bm25_text_avgdl"] = self._bm25_text_avgdl
+            metadata["bm25_text_n_docs"] = self._bm25_text_n_docs
+            metadata["bm25_text_idf"] = self._bm25_text_idf
+            metadata["bm25_image_doc_tf"] = self._bm25_image_doc_tf
+            metadata["bm25_image_avgdl"] = self._bm25_image_avgdl
+            metadata["bm25_image_n_docs"] = self._bm25_image_n_docs
+            metadata["bm25_image_idf"] = self._bm25_image_idf
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
@@ -475,7 +567,9 @@ class KnowledgeBase:
                 self.text_embeddings,
                 self.text_documents,
                 top_k,
-                sparse_weights=self._text_sparse_weights if settings.enable_hybrid_retrieval else None
+                doc_tf=self._bm25_text_doc_tf if settings.enable_hybrid_retrieval else None,
+                avgdl=self._bm25_text_avgdl if settings.enable_hybrid_retrieval else 0.0,
+                idf=self._bm25_text_idf if settings.enable_hybrid_retrieval else None,
             )
             results.extend(text_results)
 
@@ -486,7 +580,9 @@ class KnowledgeBase:
                 self.image_embeddings,
                 self.image_documents,
                 top_k,
-                sparse_weights=self._image_sparse_weights if settings.enable_hybrid_retrieval else None
+                doc_tf=self._bm25_image_doc_tf if settings.enable_hybrid_retrieval else None,
+                avgdl=self._bm25_image_avgdl if settings.enable_hybrid_retrieval else 0.0,
+                idf=self._bm25_image_idf if settings.enable_hybrid_retrieval else None,
             )
             results.extend(image_results)
 
@@ -501,32 +597,35 @@ class KnowledgeBase:
         index: faiss.Index,
         documents: List[Document],
         top_k: int,
-        sparse_weights: Optional[List[Dict[str, float]]] = None
+        doc_tf: Optional[List[Dict[str, int]]] = None,
+        avgdl: float = 0.0,
+        idf: Optional[Dict[str, float]] = None,
     ) -> List[Tuple[Document, float]]:
         """
-        在单个FAISS索引中检索最相关的文档，支持dense+sparse混合模式。
+        在单个 FAISS 索引中检索，支持 dense+BM25 混合模式。
 
         检索流程:
         1. 将查询文本编码为向量并归一化（dense）
-        2. 在FAISS索引中搜索top_k*2个候选
-        3. 若启用混合检索，计算sparse分数并加权融合
+        2. 在 FAISS 索引中搜索 top_k*2 个候选
+        3. 若启用混合检索，用 BM25 公式计算 sparse 分数并加权融合
         4. 过滤低于分数阈值的文档
-        5. 返回(文档, 分数)元组列表
+        5. 返回 (文档, 分数) 元组列表
 
         Args:
             query: 查询文本
-            index: FAISS索引对象
+            index: FAISS 索引对象
             documents: 与索引对应的文档列表
             top_k: 请求的返回数量
-            sparse_weights: 预计算的文档sparse权重列表（可选）
+            doc_tf: 预计算的文档 token->TF 字典列表
+            avgdl: 预计算的平均文档长度
+            idf: 预计算的 token->IDF 字典
 
         Returns:
-            符合条件的(文档, 分数)列表
+            符合条件的 (文档, 分数) 列表
         """
         if index.ntotal == 0:
             return []
 
-        # 搜索: 多取候选给 reranker，上限由 rag_rerank_candidate_k 控制
         search_k = min(settings.rag_rerank_candidate_k, index.ntotal)
 
         # --- Dense 检索 ---
@@ -539,14 +638,16 @@ class KnowledgeBase:
         scores_list = scores_np[0].tolist()
         indices_list = indices_np[0].tolist()
 
-        # --- Sparse 分数（可选） ---
-        sparse_scores: List[float] = [0.0] * len(scores_list)
-        if settings.enable_hybrid_retrieval and sparse_weights:
-            raw_sparse = self._compute_query_sparse_scores(query, documents, sparse_weights)
-            # Min-Max 归一化到 [0, 1]
-            max_s = max(raw_sparse) if raw_sparse else 1.0
-            if max_s > 0:
-                sparse_scores = [s / max_s for s in raw_sparse]
+        # --- BM25 Sparse 分数 ---
+        raw_bm25_scores: List[float] = [0.0] * len(indices_list)
+        if settings.enable_hybrid_retrieval and doc_tf and idf and avgdl > 0:
+            raw_bm25_scores = self._compute_query_bm25_scores(
+                query, doc_tf, avgdl, idf
+            )
+            # BM25 分数范围可能很大，先归一化到 [0, 1]
+            max_bm = max(raw_bm25_scores) if raw_bm25_scores else 1.0
+            if max_bm > 0:
+                raw_bm25_scores = [s / max_bm for s in raw_bm25_scores]
 
         # --- 分数融合 ---
         results = []
@@ -555,11 +656,8 @@ class KnowledgeBase:
 
         for i, idx in enumerate(indices_list):
             dense_score = float(scores_list[i])
-            # 修复：按真实文档索引（idx）取 sparse 分数，而非按候选位置（i）
-            sparse_score = sparse_scores[idx] if sparse_weights and 0 <= idx < len(sparse_scores) else 0.0
-
-            # 混合分数：alpha * dense + beta * sparse
-            final_score = alpha * dense_score + beta * sparse_score
+            bm25_score = raw_bm25_scores[idx] if (doc_tf and 0 <= idx < len(raw_bm25_scores)) else 0.0
+            final_score = alpha * dense_score + beta * bm25_score
 
             if idx >= 0 and idx < len(documents) and final_score >= settings.rag_score_threshold:
                 results.append((documents[idx], final_score))
@@ -600,6 +698,16 @@ class KnowledgeBase:
         self.image_embeddings = None
         self.text_documents = []
         self.image_documents = []
+        # 清空 BM25 参数
+        self._bm25_text_doc_tf = []
+        self._bm25_text_avgdl = 0.0
+        self._bm25_text_n_docs = 0
+        self._bm25_text_idf = {}
+        self._bm25_image_doc_tf = []
+        self._bm25_image_avgdl = 0.0
+        self._bm25_image_n_docs = 0
+        self._bm25_image_idf = {}
+        # 向后兼容旧格式
         self._text_sparse_weights = []
         self._image_sparse_weights = []
         gc.collect()
@@ -639,14 +747,25 @@ class Reranker:
             self._initialized = True
             return
 
-        try:
-            logger.info(f"加载重排序模型: {settings.reranker_model}")
-            from sentence_transformers import CrossEncoder
-            self.model = CrossEncoder(settings.reranker_model)
-            logger.info("重排序模型加载成功")
-        except Exception as e:
-            logger.warning(f"重排序模型加载失败: {e}")
-            self.model = None
+        if settings.reranker_backend == "dashscope":
+            logger.info(
+                f"使用百炼 dashscope reranker: {settings.reranker_model} "
+                f"(API: {settings.dashscope_base_url or 'https://dashscope.aliyuncs.com'})"
+            )
+            self._initialized = True
+            return
+
+        if settings.reranker_backend == "cross_encoder":
+            try:
+                logger.info(f"加载 cross_encoder 重排序模型: {settings.reranker_model}")
+                from sentence_transformers import CrossEncoder
+                self.model = CrossEncoder(settings.reranker_model)
+                logger.info("cross_encoder 重排序模型加载成功")
+            except Exception as e:
+                logger.warning(f"cross_encoder 重排序模型加载失败: {e}")
+                self.model = None
+        else:
+            logger.warning(f"不支持的 reranker_backend: {settings.reranker_backend}")
 
         self._initialized = True
 
@@ -670,31 +789,85 @@ class Reranker:
         if not self._initialized:
             self.initialize()
 
-        if self.model is None or not documents:
+        if not documents:
+            return []
+
+        if self.model is None and settings.reranker_backend != "dashscope":
             return documents[:top_k]
 
         try:
-            # 准备句子对
-            sentence_pairs = [
-                (query, doc.content) for doc, _ in documents
-            ]
+            if settings.reranker_backend == "dashscope":
+                scores = self._rerank_dashscope(query, [doc for doc, _ in documents])
+            else:
+                sentence_pairs = [
+                    (query, doc.content) for doc, _ in documents
+                ]
+                scores = self.model.predict(sentence_pairs)
 
-            # 获取重排序分数
-            scores = self.model.predict(sentence_pairs)
-
-            # 组合并排序
             scored_documents = [
                 (doc, float(score))
                 for (doc, _), score in zip(documents, scores)
             ]
-
             scored_documents.sort(key=lambda x: x[1], reverse=True)
-
             return scored_documents[:top_k]
 
         except Exception as e:
             logger.error(f"重排序失败: {e}")
             return documents[:top_k]
+
+    def _rerank_dashscope(
+        self,
+        query: str,
+        documents: List[Document],
+    ) -> List[float]:
+        """
+        通过百炼 rerank API 计算 query 与各文档的相关性分数。
+
+        百炼 rerank API 支持批量传入 (query, document) 对，返回相关性分数列表。
+        分数越高表示相关性越强。
+        """
+        import os
+        import requests
+
+        api_key = self._get_api_key()
+        api_base = settings.dashscope_base_url or "https://dashscope.aliyuncs.com"
+        endpoint = f"{api_base.rstrip('/')}/api/v1/services/rerank"
+
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+
+        pairs = [{"query": query, "documents": [doc.content]} for doc in documents]
+        payload = {
+            "model": settings.reranker_model,
+            "input": pairs,
+        }
+
+        resp = requests.post(endpoint, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        scores = []
+        for result in data.get("output", {}).get("results", []):
+            doc_scores = result.get("documents", [])
+            if doc_scores:
+                scores.append(float(doc_scores[0].get("relevance_score", 0.0)))
+            else:
+                scores.append(0.0)
+
+        if not scores and "error" in data:
+            raise RuntimeError(f"百炼 rerank API 错误: {data.get('error')}")
+
+        return scores
+
+    @staticmethod
+    def _get_api_key() -> str:
+        """从 settings 或环境变量获取 API key。"""
+        key = settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY", "")
+        if not key:
+            raise ValueError("未设置 DASHSCOPE_API_KEY，请检查 .env 配置。")
+        return key
 
 
 class RAGEngine:
@@ -1018,6 +1191,102 @@ class TransformersEmbeddingModel:
     def get_sentence_embedding_dimension(self) -> int:
         """返回嵌入向量维度"""
         self._lazy_init()
+        return self._dim
+
+
+class DashScopeEmbeddingModel:
+    """
+    百炼 dashscope API 嵌入模型。
+
+    通过 HTTP API 调用 dashscope text-embedding-v3，避免本地加载模型。
+    支持批量请求，自动分批避免超限。
+    """
+
+    def __init__(
+        self,
+        model_name: str = "text-embedding-v3",
+        api_key: Optional[str] = None,
+        api_base: Optional[str] = None,
+        batch_size: int = 16,
+    ):
+        self.model_name = model_name
+        self.api_key = api_key
+        self.api_base = api_base or "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        self.batch_size = batch_size
+        self._dim: Optional[int] = None
+
+    def encode(
+        self,
+        texts: List[str],
+        batch_size: Optional[int] = None,
+        show_progress_bar: bool = False,
+        convert_to_numpy: bool = True
+    ) -> np.ndarray:
+        if batch_size is None:
+            batch_size = self.batch_size
+
+        texts = [t or "" for t in texts]
+        all_embeddings: List[np.ndarray] = []
+
+        import os
+        import requests
+        from tqdm import tqdm
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key or os.environ.get('DASHSCOPE_API_KEY', '')}",
+            "Content-Type": "application/json",
+        }
+        endpoint = f"{self.api_base.rstrip('/')}/compatible-mode/v1/embeddings"
+
+        iterator = range(0, len(texts), batch_size)
+        if show_progress_bar:
+            iterator = tqdm(iterator, desc="Embedding")
+
+        for start in iterator:
+            batch = texts[start: start + batch_size]
+            # 百炼 text-embedding-v3 批量上限为 10 条/请求
+            api_batch_size = 10
+            if len(batch) > api_batch_size:
+                # 进一步拆分超出限制的部分
+                for sub_start in range(0, len(batch), api_batch_size):
+                    sub_batch = batch[sub_start: sub_start + api_batch_size]
+                    self._call_embedding_api(endpoint, headers, sub_batch, all_embeddings)
+            else:
+                self._call_embedding_api(endpoint, headers, batch, all_embeddings)
+
+        result = np.vstack(all_embeddings).astype("float32")
+        return result
+
+    def _call_embedding_api(
+        self,
+        endpoint: str,
+        headers: Dict[str, str],
+        batch: List[str],
+        all_embeddings: List[np.ndarray],
+    ):
+        """调用百炼 embedding API 并追加结果。"""
+        import requests
+        payload = {
+            "model": self.model_name,
+            "input": batch,
+        }
+        resp = requests.post(endpoint, json=payload, headers=headers, timeout=60)
+        resp.raise_for_status()
+        data = resp.json()
+
+        for item in data["data"]:
+            vec = np.array(item["embedding"], dtype="float32")
+            if self._dim is None:
+                self._dim = len(vec)
+            all_embeddings.append(vec)
+
+    def get_sentence_embedding_dimension(self) -> int:
+        """返回嵌入向量维度，首次请求后自动推断。"""
+        if self._dim is None:
+            raise RuntimeError(
+                "维度未确定，请先调用 encode() 一次以自动推断维度。"
+                "百炼 API 需实际请求后才知道输出维度。"
+            )
         return self._dim
 
 

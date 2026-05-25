@@ -29,12 +29,15 @@ class Settings(BaseSettings):
     llm_base_url: Optional[str] = None
     
     # Embedding配置
-    embedding_backend: str = "transformers"  # hashing, sentence_transformer, transformers
-    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # transformers后端推荐使用此模型
-    embedding_device: str = "cpu"  # cpu, cuda
-    embedding_batch_size: int = 8
-    embedding_dim: int = 384  # MiniLM为384维; BGE-M3为1024维; m3e-base为768维
-    max_seq_length: int = 256  # transformers模型的最大序列长度
+    embedding_backend: str = "dashscope"  # hashing, sentence_transformer, transformers, dashscope
+    embedding_model: str = "text-embedding-v3"  # dashscope后端使用模型名称
+    embedding_device: str = "cpu"  # cpu, cuda（dashscope为API调用，此参数仅作兼容）
+    embedding_batch_size: int = 10  # 百炼 API 批量上限为 10 条/请求
+    embedding_dim: int = 1024  # text-embedding-v3 输出 1024 维
+    max_seq_length: int = 2048  # 百炼 API 最大输入 token 数
+    # dashscope API 配置（embedding 和 reranker 统一从这里读取）
+    dashscope_api_key: Optional[str] = None  # 从 DASHSCOPE_API_KEY 环境变量读取
+    dashscope_base_url: Optional[str] = None  # 从 DASHSCOPE_BASE_URL 环境变量读取
 
     # 多模态模型配置
     enable_vision_model: bool = False
@@ -48,8 +51,9 @@ class Settings(BaseSettings):
     rag_top_k: int = 8  # 提高 top_k，增加候选给 reranker
     rag_score_threshold: float = 0.35  # 降低阈值，增加召回
     rag_rerank_candidate_k: int = 12  # rerank 候选上限，减少不必要的重排计算
-    rag_enable_reranker: bool = True  # 启用BGE-M3配套的多语言重排序模型
-    reranker_model: str = "BAAI/bge-reranker-v2-m3"  # 多语言交叉编码器，支持中文重排序
+    rag_enable_reranker: bool = True  # 启用重排序模型
+    reranker_backend: str = "dashscope"  # cross_encoder, dashscope
+    reranker_model: str = "qwen3-vl-rerank"  # dashscope后端使用模型名称
 
     # 知识库配置
     knowledge_base_path: Path = PROJECT_ROOT / "knowledge_base"
@@ -94,8 +98,11 @@ class Settings(BaseSettings):
     route_classifier_high_margin: float = 0.12  # 高置信度边界
 
     # 混合检索配置
-    enable_hybrid_retrieval: bool = True  # 启用dense+sparse混合检索（BGE-M3内置支持）
-    hybrid_sparse_weight: float = 0.3  # sparse分数权重，dense_weight = 1 - sparse_weight
+    enable_hybrid_retrieval: bool = True  # 启用 dense+sparse 混合检索
+    hybrid_sparse_weight: float = 0.3  # sparse 分数权重，dense_weight = 1 - sparse_weight
+    # BM25 参数（用于混合检索的稀疏打分）
+    bm25_k1: float = 1.5  # 词频饱和参数，控制 tf 增长速率
+    bm25_b: float = 0.75  # 文档长度归一化参数
 
     # 拼写纠错配置（用于 dual_route_retriever 检索前）
     spell_correction_enabled: bool = False
