@@ -48,10 +48,9 @@ logs/
 .env.*.local
 
 # Knowledge base - large generated files
-knowledge_base/index/
-!knowledge_base/index/.gitkeep
 knowledge_base/raw/
 knowledge_base/images/
+knowledge_base/route_classifier
 
 # Model files
 *.bin
@@ -80,9 +79,7 @@ htmlcov/
 site/
 
 # Evaluation outputs
-knowledge_base/evaluation/*.json
-knowledge_base/evaluation/*.md
-knowledge_base/evaluation/*.csv
+knowledge_base/evaluation
 
 # Temporary / experimental scripts
 scripts/rebuild_kb_temp.py
