@@ -831,30 +831,36 @@ class Reranker:
 
         api_key = self._get_api_key()
         api_base = settings.dashscope_base_url or "https://dashscope.aliyuncs.com"
-        endpoint = f"{api_base.rstrip('/')}/api/v1/services/rerank"
+        endpoint = f"{api_base.rstrip('/')}/api/v1/services/rerank/text-rerank/text-rerank"
 
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
 
-        pairs = [{"query": query, "documents": [doc.content]} for doc in documents]
         payload = {
             "model": settings.reranker_model,
-            "input": pairs,
+            "input": {
+                "query": {"text": query},
+                "documents": [{"text": doc.content} for doc in documents],
+            },
+            "parameters": {
+                "top_n": len(documents),
+                "return_documents": False,
+            },
         }
 
         resp = requests.post(endpoint, json=payload, headers=headers, timeout=60)
-        resp.raise_for_status()
+        if not resp.ok:
+            logger.error(f"百炼 rerank 请求失败 [{resp.status_code}]: {resp.text}")
+            resp.raise_for_status()
         data = resp.json()
 
-        scores = []
+        scores = [0.0] * len(documents)
         for result in data.get("output", {}).get("results", []):
-            doc_scores = result.get("documents", [])
-            if doc_scores:
-                scores.append(float(doc_scores[0].get("relevance_score", 0.0)))
-            else:
-                scores.append(0.0)
+            doc_idx = int(result.get("index", result.get("document_index", -1)))
+            if 0 <= doc_idx < len(documents):
+                scores[doc_idx] = float(result.get("relevance_score", 0.0))
 
         if not scores and "error" in data:
             raise RuntimeError(f"百炼 rerank API 错误: {data.get('error')}")
