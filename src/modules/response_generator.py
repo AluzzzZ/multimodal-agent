@@ -136,6 +136,10 @@ class ResponseGenerator:
             - reasoning: 思维链推理结果
             - confidence: 回答置信度
         """
+        print(f"\n{'='*60}")
+        print(f"[开始处理] 用户问题: {query}")
+        print(f"{'='*60}\n")
+
         if not self._initialized:
             self.initialize()
 
@@ -150,14 +154,21 @@ class ResponseGenerator:
         }
 
         # ========== Step 1: 问题分解 (思维链) ==========
-        # 复杂问题拆分为多个简单子问题，保证每个子问题都能被完整回答
-        # 例如: "能送到乡镇吗？需要加运费吗？多久到？" -> 拆分为3个子问题
+        print(f"\n{'='*40}")
+        print(f"[Step 1] 问题分解")
+        print(f"{'='*40}")
+        print(f"  原始问题: {query}")
+        print(f"  启用CoT: {settings.enable_cot_reasoning}")
+
         sub_questions = self._split_simple_questions(query)
         if settings.enable_cot_reasoning and self._needs_deep_reasoning(query, sub_questions):
             decomposition = self.cot_reasoner.decompose_question(query)
             result["reasoning"] = decomposition
             if decomposition.get("is_complex"):
                 sub_questions = decomposition.get("sub_questions", sub_questions or [query])
+            print(f"  模式: 深度推理 (CoT)")
+            print(f"  是否复杂: {decomposition.get('is_complex', False)}")
+            print(f"  推理步骤: {decomposition.get('reasoning_steps', [])}")
         else:
             result["reasoning"] = {
                 "original_question": query,
@@ -166,17 +177,98 @@ class ResponseGenerator:
                 "is_complex": len(sub_questions) > 1,
                 "mode": "fast_split"
             }
+            print(f"  模式: 快速拆分 (fast_split)")
+
+        print(f"  子问题数量: {len(sub_questions)}")
+        for i, sq in enumerate(sub_questions, 1):
+            print(f"    [{i}] {sq}")
 
         # ========== Step 2: RAG检索 ==========
-        # 对每个子问题独立检索，收集所有相关来源
-        # 去重处理避免重复内容
+        print(f"\n{'='*40}")
+        print(f"[Step 2] RAG检索")
+        print(f"{'='*40}")
+
         all_sources = []
         retrieved_images = []
         route_packets = []
 
-        for sq in sub_questions:
+        for sq_idx, sq in enumerate(sub_questions):
+            print(f"\n  --- 子问题 {sq_idx + 1}: {sq} ---")
+
             route_result = self.dual_route_retriever.retrieve(sq, images=images)
             retrieval_result = route_result["results"]
+            route_info = route_result["route_info"]
+
+            # 打印路由决策
+            print(f"\n  [路由决策]")
+            print(f"    路由类型: {route_info.get('route', 'unknown')}")
+            print(f"    规则路由: {route_info.get('rule_route', 'N/A')}")
+            print(f"    service_score: {route_info.get('service_score', 0):.4f}")
+            print(f"    manual_score: {route_info.get('manual_score', 0):.4f}")
+            print(f"    语言: {route_info.get('language', 'unknown')}")
+            print(f"    使用分类器: {route_info.get('classifier_used', False)}")
+            print(f"    分类器标签: {route_info.get('classifier_label', 'N/A')}")
+            print(f"    分类器置信度: {route_info.get('classifier_confidence', 0):.4f}")
+            print(f"    分类器回退原因: {route_info.get('classifier_fallback_reason', 'N/A')}")
+
+            # 打印意图匹配
+            matched_intents = route_info.get('matched_intents', [])
+            if matched_intents:
+                print(f"\n  [意图匹配]")
+                print(f"    命中意图: {matched_intents}")
+
+            # 打印关键词命中
+            service_kw = route_info.get('service_keyword_hits', [])
+            manual_kw = route_info.get('manual_keyword_hits', [])
+            if service_kw:
+                print(f"    service关键词命中: {service_kw}")
+            if manual_kw:
+                print(f"    manual关键词命中: {manual_kw}")
+
+            # 打印候选手册
+            manual_candidates = route_info.get('manual_candidates', [])
+            if manual_candidates:
+                print(f"\n  [手册候选]")
+                print(f"    候选手册: {manual_candidates}")
+            else:
+                print(f"\n  [手册候选] 无候选")
+                # 调试：打印别名映射
+                print(f"    别名映射样例: {dict(list(self.dual_route_retriever.manual_alias_map.items())[:3])}")
+
+            # 打印检索结果
+            print(f"\n  [检索结果]")
+            print(f"    总数: {len(retrieval_result)}")
+
+            # 分别打印 service 和 manual 结果
+            service_res = route_result.get("service_results", [])
+            manual_res = route_result.get("manual_results", [])
+            if service_res:
+                print(f"    Service结果数: {len(service_res)}")
+                for i, item in enumerate(service_res[:2], 1):
+                    score = item.get('relevance_score', 0)
+                    title = item.get('metadata', {}).get('title', 'N/A')
+                    print(f"      Service[{i}] 分数={score:.4f} | {title}")
+            if manual_res:
+                print(f"    Manual结果数: {len(manual_res)}")
+                for i, item in enumerate(manual_res[:2], 1):
+                    score = item.get('relevance_score', 0)
+                    title = item.get('metadata', {}).get('title', 'N/A')
+                    manual_name = item.get('metadata', {}).get('manual_name', 'N/A')
+                    print(f"      Manual[{i}] 分数={score:.4f} | {title} | {manual_name}")
+
+            # 打印合并后的结果
+            if retrieval_result:
+                print(f"\n    [合并后Top3]")
+                for i, item in enumerate(retrieval_result[:3], 1):
+                    score = item.get('relevance_score', 0)
+                    title = item.get('metadata', {}).get('title', item.get('metadata', {}).get('section_title', 'N/A'))
+                    manual = item.get('metadata', {}).get('manual_name', 'N/A')
+                    content_preview = item.get('content', '')[:80]
+                    print(f"      [{i}] 分数={score:.4f} | {title} | {manual}")
+                    print(f"          内容: {content_preview}...")
+            else:
+                print(f"    (无检索结果)")
+
             route_packets.append(
                 {
                     "question": sq,
@@ -194,14 +286,20 @@ class ResponseGenerator:
             )
 
             for item in retrieval_result:
-                # 基于doc_id去重，保留首次出现的结果
                 if item["doc_id"] not in [s["doc_id"] for s in all_sources]:
                     all_sources.append(item)
                     if item.get("image_ids"):
                         retrieved_images.extend(item["image_ids"])
 
+        print(f"\n  [汇总]")
+        print(f"    去重后总来源数: {len(all_sources)}")
+        print(f"    总图片数: {len(retrieved_images)}")
+
         # ========== Step 3: 构建上下文 ==========
-        # 整合检索到的知识、对话历史、额外上下文
+        print(f"\n{'='*40}")
+        print(f"[Step 3] 构建上下文")
+        print(f"{'='*40}")
+
         context_text = self._build_context(
             all_sources,
             conversation_history,
@@ -209,9 +307,22 @@ class ResponseGenerator:
             result["routes"],
             route_packets=route_packets,
         )
+        print(f"  上下文长度: {len(context_text)} 字符")
+        print(f"  来源数量: {len(all_sources)}")
+        if all_sources:
+            print(f"  来源列表:")
+            for i, src in enumerate(all_sources[:3], 1):
+                title = src.get('metadata', {}).get('title', src.get('metadata', {}).get('section_title', 'N/A'))
+                manual = src.get('metadata', {}).get('manual_name', 'N/A')
+                print(f"    [{i}] {title} - {manual}")
 
         # ========== Step 4: 生成回答 ==========
-        # 无论单问题还是多问题，都尽量压缩为一次生成调用，减少时延
+        print(f"\n{'='*40}")
+        print(f"[Step 4] 生成回答")
+        print(f"{'='*40}")
+        print(f"  使用LLM: {self.llm_client is not None}")
+        print(f"  子问题数: {len(sub_questions)}")
+
         final_answer = self._generate_answer(
             query,
             sub_questions,
@@ -221,34 +332,63 @@ class ResponseGenerator:
             route_packets=route_packets,
         )
 
+        print(f"  回答长度: {len(final_answer)} 字符")
+        print(f"  回答预览: {final_answer[:200]}...")
+
         # ========== Step 5: 幻觉检测与修正 ==========
-        # 验证答案是否与知识库上下文一致
-        # 如果不一致，尝试修正答案
+        print(f"\n{'='*40}")
+        print(f"[Step 5] 幻觉检测")
+        print(f"{'='*40}")
+        print(f"  启用检测: {settings.hallucination_detection_enabled}")
+
         if settings.hallucination_detection_enabled:
             verification = self.hallucination_controller.verify_against_context(
                 final_answer,
                 [s["content"] for s in all_sources]
             )
 
+            print(f"  一致性: {verification.get('is_consistent', True)}")
+            print(f"  置信度: {verification.get('confidence', 0):.4f}")
+            if verification.get('issues'):
+                print(f"  问题列表: {verification.get('issues')}")
+            if verification.get('unsupported_claims'):
+                print(f"  不支持的声明: {verification.get('unsupported_claims')}")
+
             if not verification.get("is_consistent", True):
-                # 一致性验证失败，尝试修正答案
+                print(f"  -> 触发答案修正")
                 refined_answer = self.hallucination_controller.refine_answer(
                     final_answer,
                     [s["content"] for s in all_sources],
                     sub_questions
                 )
                 final_answer = refined_answer
+                print(f"  修正后长度: {len(final_answer)} 字符")
 
             result["confidence"] = verification.get("confidence", 0.0)
         else:
-            # 禁用幻觉检测时使用默认值
+            print(f"  跳过检测，使用默认置信度 0.7")
             result["confidence"] = 0.7
 
         # ========== Step 6: 提取相关图片 ==========
-        # 从检索结果中提取图片ID，最多返回5张
-        result["images"] = list(set(retrieved_images))[:5]
+        # 从回答中统计 LLM 实际使用的 <PIC> 数量，图片列表按需对齐
+        pic_count_in_answer = len(re.findall(r'<PIC>', final_answer))
+        all_retrieved_images = list(set(retrieved_images))
+        if pic_count_in_answer > 0:
+            # LLM 用了多少 <PIC>，就最多传回多少张图，避免数量不匹配
+            result["images"] = all_retrieved_images[:pic_count_in_answer]
+            print(f"  回答中 <PIC> 数量: {pic_count_in_answer}，返回图片数: {len(result['images'])}")
+        else:
+            result["images"] = all_retrieved_images[:5]
         result["sources"] = all_sources
         result["response"] = final_answer
+
+        print(f"\n{'='*40}")
+        print(f"[完成]")
+        print(f"{'='*40}")
+        print(f"  最终置信度: {result['confidence']:.4f}")
+        print(f"  返回图片数: {len(result['images'])}")
+        print(f"  返回来源数: {len(result['sources'])}")
+        print(f"\n{'='*60}\n")
 
         return result
 
@@ -482,7 +622,7 @@ class ResponseGenerator:
 
 请生成回答，要求：
 1. 准确基于参考资料
-2. 如需包含图片，使用 <PIC> 标记
+2. 如需包含图片，在上下文中含有对应图示的位置使用 <PIC> 标记；每段最多 1-2 个，不要堆砌
 3. 如果用户一次问了多个问题，必须逐项回答，不能遗漏
 4. 回答结构清晰，优先使用编号或分段
 5. 如有不确定信息，明确说明，不要编造政策或细节
@@ -1128,17 +1268,20 @@ class ResponseGenerator:
         当检索结果包含图片引用时，在回答末尾添加图示提示，
         告知用户可参考哪些配图。
 
+        注意: 传递具体图片 ID（如 <PIC>[xxx]），而非裸 <PIC> 标记，
+        以便 LLM 知道实际有哪些图片可用，避免数量不匹配。
+
         Args:
             source: 手册检索结果条目
 
         Returns:
-            图示提示文本，如 "相关图示：<PIC> <PIC>"，无图时返回空字符串
+            图示提示文本，如 "相关图示：<PIC>[img_001] <PIC>[img_002]"，无图时返回空字符串
         """
         image_ids = source.get("image_ids", [])
         if not image_ids:
             return ""
-        marker_count = min(len(image_ids), 2)
-        return "相关图示：" + " ".join(["<PIC>"] * marker_count)
+        markers = [f"<PIC>[{img_id}]" for img_id in image_ids[:3]]
+        return "相关图示：" + " ".join(markers)
 
     def _simple_similarity(self, left: str, right: str) -> float:
         """
