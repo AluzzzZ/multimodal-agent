@@ -15,7 +15,7 @@ import json
 import statistics
 from collections import Counter
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 from config import settings
 from src.modules.response_generator import ResponseGenerator
@@ -205,42 +205,61 @@ def build_analysis_record(row: Dict[str, str], result: Dict[str, Any]) -> Dict[s
     return record
 
 
-def write_submission_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
-    with path.open("w", encoding="utf-8", newline="") as handle:
+def load_detail_rows(detail_path: Path) -> List[Dict[str, Any]]:
+    """读取已有明细文件，返回所有分析记录（用于续跑后重新生成完整摘要）。"""
+    rows: List[Dict[str, Any]] = []
+    if not detail_path.exists():
+        return rows
+    with detail_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        reader = csv.DictReader(handle)
+        for row in reader:
+            row["confidence"] = float(row["confidence"])
+            row["keyword_coverage"] = float(row["keyword_coverage"])
+            row["answer_chars"] = int(row["answer_chars"])
+            row["image_count"] = int(row["image_count"])
+            row["has_pic_marker"] = row["has_pic_marker"] == "True"
+            row["has_numbered_structure"] = row["has_numbered_structure"] == "True"
+            row["used_fallback"] = row["used_fallback"] == "True"
+            row["service_like_question"] = row["service_like_question"] == "True"
+            row["sub_question_count"] = int(row["sub_question_count"])
+            row["service_route_count"] = int(row["service_route_count"])
+            row["mixed_route_count"] = int(row["mixed_route_count"])
+            row["manual_route_count"] = int(row["manual_route_count"])
+            row["classifier_used_count"] = int(row["classifier_used_count"])
+            row["classifier_avg_confidence"] = float(row["classifier_avg_confidence"])
+            row["route_records"] = []
+            row["risk_level"] = risk_level(row)
+            rows.append(row)
+    return rows
+
+
+def write_submission_row(path: Path, record: Dict[str, Any]) -> None:
+    """追加单条答案到提交文件（增量写入）。"""
+    file_exists = path.exists()
+    with path.open("a", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["id", "ret"])
-        for row in rows:
-            writer.writerow([row["id"], row["answer"]])
+        if not file_exists:
+            writer.writerow(["id", "ret"])
+        writer.writerow([record["id"], record["answer"]])
 
 
-def write_detail_csv(path: Path, rows: List[Dict[str, Any]]) -> None:
+def write_detail_row(path: Path, record: Dict[str, Any]) -> None:
+    """追加单条分析记录到明细文件（增量写入）。"""
     fieldnames = [
-        "id",
-        "dominant_route",
-        "confidence",
-        "risk_level",
-        "sub_question_count",
-        "service_route_count",
-        "mixed_route_count",
-        "manual_route_count",
-        "answer_chars",
-        "image_count",
-        "has_pic_marker",
-        "has_numbered_structure",
-        "keyword_coverage",
-        "used_fallback",
-        "service_like_question",
-        "classifier_used_count",
-        "classifier_dominant_label",
-        "classifier_avg_confidence",
-        "question",
-        "answer",
+        "id", "dominant_route", "confidence", "risk_level",
+        "sub_question_count", "service_route_count", "mixed_route_count",
+        "manual_route_count", "answer_chars", "image_count",
+        "has_pic_marker", "has_numbered_structure", "keyword_coverage",
+        "used_fallback", "service_like_question",
+        "classifier_used_count", "classifier_dominant_label",
+        "classifier_avg_confidence", "question", "answer",
     ]
-    with path.open("w", encoding="utf-8-sig", newline="") as handle:
+    file_exists = path.exists()
+    with path.open("a", encoding="utf-8-sig", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in rows:
-            writer.writerow({key: row[key] for key in fieldnames})
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({key: record[key] for key in fieldnames})
 
 
 def build_summary(rows: List[Dict[str, Any]], settings_snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -333,6 +352,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default=str(Path("knowledge_base") / "evaluation"), help="输出目录")
     parser.add_argument("--submission-name", default="submission_public_generated.csv", help="提交 CSV 文件名")
     parser.add_argument("--disable-llm", action="store_true", help="关闭外部 LLM，使用检索驱动兜底回答")
+    parser.add_argument("--resume", action="store_true", default=True, help="启用断点续跑，自动跳过已处理的题目（默认开启）")
+    parser.add_argument("--no-resume", dest="resume", action="store_false", help="禁用断点续跑，从头开始处理")
     args = parser.parse_args()
 
     if args.disable_llm:
@@ -342,19 +363,39 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    submission_path = output_dir / args.submission_name
+    detail_path = output_dir / "public_answer_detail.csv"
+    summary_json_path = output_dir / "public_answer_summary.json"
+    summary_md_path = output_dir / "public_answer_summary.md"
+
     rows = load_questions(Path(args.questions))
     generator = ResponseGenerator()
     generator.initialize()
 
-    analysis_rows: List[Dict[str, Any]] = []
-    error_rows: List[Dict[str, Any]] = []
+    existing_rows: List[Dict[str, Any]] = []
+    if args.resume:
+        existing_rows = load_detail_rows(detail_path)
+        if existing_rows:
+            print(f"[断点续跑] 检测到已有 {len(existing_rows)} 条结果，将跳过已处理题目")
+
+    done_ids: Set[str] = {row["id"] for row in existing_rows}
+    total = len(rows)
+
+    analysis_rows: List[Dict[str, Any]] = list(existing_rows)
+    error_rows: List[Dict[str, Any]] = [row for row in existing_rows if row["risk_level"] == "high"]
+
     for idx, row in enumerate(rows):
+        if row["id"] in done_ids:
+            continue
         try:
             result = generator.generate(row["question"])
-            analysis_rows.append(build_analysis_record(row, result))
+            record = build_analysis_record(row, result)
+            analysis_rows.append(record)
+            write_submission_row(submission_path, record)
+            write_detail_row(detail_path, record)
+            print(f"[{idx + 1}/{total}] 完成 id={row['id']} confidence={record['confidence']}")
         except Exception as e:
-            # 单题失败不影响整批，打一条结构化错误记录后继续
-            error_rows.append({
+            record = {
                 "id": row["id"],
                 "question": row["question"],
                 "answer": f"[生成失败，请人工处理] {type(e).__name__}: {e}",
@@ -376,20 +417,16 @@ def main() -> None:
                 "classifier_avg_confidence": 0.0,
                 "route_records": [],
                 "risk_level": "high",
-            })
-            analysis_rows.append(error_rows[-1])
-            print(f"[警告] 第 {idx + 1}/{len(rows)} 题生成失败，已记录: id={row['id']} ({type(e).__name__}: {e})")
+            }
+            error_rows.append(record)
+            analysis_rows.append(record)
+            write_submission_row(submission_path, record)
+            write_detail_row(detail_path, record)
+            print(f"[{idx + 1}/{total}] 失败 id={row['id']} ({type(e).__name__}: {e})")
 
-    if error_rows:
-        print(f"[汇总] 共 {len(error_rows)} 题生成失败，已写入 error_rows，请人工处理")
-
-    submission_path = output_dir / args.submission_name
-    detail_path = output_dir / "public_answer_detail.csv"
-    summary_json_path = output_dir / "public_answer_summary.json"
-    summary_md_path = output_dir / "public_answer_summary.md"
-
-    write_submission_csv(submission_path, analysis_rows)
-    write_detail_csv(detail_path, analysis_rows)
+    new_errors = [row for row in error_rows if row["dominant_route"] == "error"]
+    if new_errors:
+        print(f"[汇总] 本次新增 {len(new_errors)} 题生成失败，已追加到结果文件中")
 
     summary = build_summary(
         analysis_rows,
