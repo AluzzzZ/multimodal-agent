@@ -32,31 +32,115 @@ from src.utils.llm_corrector import get_spell_corrector
 
 
 MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
-    "VR头显手册": ["VR头显", "头显", "VR设备", "vr"],
-    "人体工学椅手册": ["人体工学椅", "工学椅", "办公椅", "椅子"],
-    "健身单车手册": ["健身单车", "动感单车", "单车"],
-    "健身追踪器手册": ["健身追踪器", "手环", "表带", "追踪器"],
-    "儿童电动摩托车手册": ["儿童电动摩托车", "儿童摩托车", "电动摩托车"],
-    "冰箱手册": ["冰箱", "冷藏室", "冷冻室"],
-    "功能键盘手册": ["功能键盘", "键盘", "硬件模式"],
-    "发电机手册": ["发电机", "机油", "发动机", "电池电量"],
-    "可编程温控器手册": ["温控器", "可编程温控器", "恒温器"],
-    "吹风机手册": ["吹风机", "冷机", "热机", "化油器"],
+    # ── 原有产品（补充英文别名） ──────────────────────────────────────
+    "VR头显手册": ["VR头显", "头显", "VR设备", "vr", "vr headset", "headset", "虚拟现实头显"],
+    "人体工学椅手册": ["人体工学椅", "工学椅", "办公椅", "椅子", "chair", "ergonomic chair", "人体工学座椅"],
+    "健身单车手册": ["健身单车", "动感单车", "单车", "bike", "exercise bike", "fitness bike"],
+    "健身追踪器手册": ["健身追踪器", "手环", "表带", "追踪器", "tracker", "fitness tracker", "运动手环"],
+    "儿童电动摩托车手册": ["儿童电动摩托车", "儿童摩托车", "电动摩托车", "motorcycle"],
+    "冰箱手册": ["冰箱", "冷藏室", "冷冻室", "refrigerator", "fridge", "freezer", "冷藏柜", "冷柜"],
+    "功能键盘手册": ["功能键盘", "键盘", "硬件模式", "keyboard"],
+    "发电机手册": ["发电机", "机油", "发动机", "电池电量", "generator", "engine", "发电机组"],
+    "可编程温控器手册": ["温控器", "可编程温控器", "恒温器", "thermostat"],
+    "吹风机手册": ["吹风机", "冷机", "热机", "化油器", "hair dryer", "dryer"],
     "摩托艇手册": [
-        "摩托艇", "划船", "钓鱼", "拖曳速度", "滑航",
-        "boat", "ship", "bimini top", "anchor light", "jet wash",
-        "bilge pump", "cooling system", "engine oil", "water supply button",
+        "摩托艇", "jetski", "jet ski", "watercraft", "喷气艇",
+        "bimini top", "anchor light", "jet wash", "bilge pump",
+        "cooling system", "engine oil", "water supply button",
         "battery compartment", "sound system", "emission control certificate",
     ],
-    "水泵手册": ["水泵", "泵"],
-    "洗碗机手册": ["洗碗机", "亮碟剂", "餐具篮"],
-    "烤箱手册": ["烤箱", "烘烤", "air fryer", "airfryer", "空气炸锅"],
-    "电钻手册": ["电钻", "指示灯", "DCB107", "DCB112"],
-    "相机手册": ["相机", "镜头", "快门", "闪光灯"],
-    "空气净化器手册": ["空气净化器", "空气质量指示灯", "净化器"],
-    "空调手册": ["空调", "遥控器", "自清洁", "等离子", "自动运行模式"],
-    "蒸汽清洁机手册": ["蒸汽清洁机", "蒸汽拖把", "清洁机"],
-    "蓝牙激光鼠标手册": ["蓝牙激光鼠标", "蓝牙鼠标", "鼠标"],
+    "水泵手册": ["水泵", "泵", "pump", "水泵机组", "抽水泵"],
+    "洗碗机手册": ["洗碗机", "亮碟剂", "餐具篮", "dishwasher", "dish washer"],
+    "烤箱手册": ["烤箱", "烘烤", "air fryer", "airfryer", "空气炸锅", "oven", "baking", "烤炉", "嵌入式烤箱"],
+    "电钻手册": ["电钻", "指示灯", "DCB107", "DCB112", "drill", "cordless drill", "充电电钻"],
+    "相机手册": ["相机", "镜头", "快门", "闪光灯", "camera", "digital camera", "数码相机"],
+    "空气净化器手册": ["空气净化器", "空气质量指示灯", "净化器", "air purifier", "purifier"],
+    "空调手册": ["空调", "遥控器", "自清洁", "等离子", "自动运行模式", "air conditioner", "AC", "冷气机"],
+    "蒸汽清洁机手册": ["蒸汽清洁机", "蒸汽拖把", "清洁机", "steam cleaner", "蒸汽拖把机"],
+    "蓝牙激光鼠标手册": ["蓝牙激光鼠标", "蓝牙鼠标", "鼠标", "mouse", "bluetooth mouse"],
+
+    # ── 手册new 新增产品（19个） ────────────────────────────────────
+    "RidingMower草坪拖拉机英文手册": [
+        "草坪拖拉机", "riding mower", "lawn mower", "grass mower", "割草机",
+        "riding lawn mower", "lawn tractor", "草坪割草机", "garden tractor",
+    ],
+    "LandlinePhone座机电话英文手册": [
+        "座机", "固定电话", "landline", "电话机", "telephone", "座机电话",
+        "有线电话", "家庭电话", "phone handset",
+    ],
+    "Treadmill跑步机英文手册": [
+        "跑步机", "treadmill", "running machine", "健身跑步机", "跑步机设备",
+        "electric treadmill",
+    ],
+    "MicrowaveOverRange大功率微波炉英文手册": [
+        "微波炉", "大功率微波炉", "microwave", "微波", "over the range microwave",
+        "微波烤箱", "嵌入式微波炉",
+    ],
+    "InstantPot多功能压力锅英文手册": [
+        "多功能压力锅", "instant pot", "instantpot", "压力锅", "快压锅",
+        "电压力锅", "pressure cooker", "智能压力锅", "多合一压力锅",
+        "float valve", "sealing ring", "quick release", "steam release",
+    ],
+    "WashingMachine洗衣机英文手册": [
+        "洗衣机", "washing machine", "washer", "洗衣", "滚筒洗衣机", "波轮洗衣机",
+        "洗衣设备",
+    ],
+    "RobotVacuum扫地机器人英文手册": [
+        "扫地机器人", "robot vacuum", "扫地机", "智能扫地机", "自动扫地机",
+        "vacuum robot", "roomba", "清洁机器人", "扫拖机器人",
+        "dual-mode virtual wall",
+    ],
+    "NetworkCamera网络摄像头英文手册": [
+        "网络摄像头", "ip camera", "网络摄像机", "监控摄像头", "ipcam",
+        "network camera", "安防摄像头", "cctv camera", "无线摄像头",
+    ],
+    "VacuumCleaner立式吸尘器英文手册": [
+        "立式吸尘器", "vacuum cleaner", "吸尘器", "直立式吸尘器",
+        "canister vacuum", "桶式吸尘器", "干湿吸尘器",
+    ],
+    "TV电视英文手册": [
+        "电视", "tv", "television", "电视机", "液晶电视", "智能电视",
+        "平板电视", "tv remote",
+    ],
+    "Snowmobile越野雪地车英文手册": [
+        "雪地车", "snowmobile", "越野雪地车", "snow mobile", "雪地摩托",
+        "雪地机动车",
+    ],
+    "Grill烤架英文手册": [
+        "烤架", "grill", "烧烤架", "bbq", "燃气烤架", "户外烤架",
+        "barbecue grill",
+    ],
+    "EReader电子书阅读器英文手册": [
+        "电子书阅读器", "ereader", "e-reader", "电子书", "阅读器",
+        "kindle", "电子纸阅读器", "电子书器",
+    ],
+    "Earphones无线耳机英文手册": [
+        "无线耳机", "earphones", "耳机", "earbuds", "headphones",
+        "蓝牙耳机", "真无线耳机", "无线耳塞",
+    ],
+    "Fax传真机安全指南英文手册": [
+        "传真机", "fax", "传真", "传真设备", "电话传真一体机",
+    ],
+    "WaveRunner喷气快艇英文手册": [
+        "喷气快艇", "wave runner", "wave-runner", "喷射艇", "wave runner jet",
+        "personal watercraft", "喷气式水上艇",
+    ],
+    "BoatFSH船用发动机英文手册": [
+        "船用发动机", "舷外发动机", "boat engine", "outboard motor",
+        "船外机", "船舶发动机", "船用马达",
+    ],
+    "AirFryer空气炸锅英文手册": [
+        "空气炸锅", "air fryer", "airfryer", "无油空气炸锅", "气炸锅",
+        "air fryer oven",
+    ],
+    "Espresso咖啡机英文手册": [
+        "咖啡机", "espresso", "espresso machine", "意式咖啡机", "咖啡壶",
+        "浓缩咖啡机", "家用咖啡机", "泵压式咖啡机",
+    ],
+    "Canon相机英文手册": [
+        "canon", "canon相机", "佳能", "佳能相机", "canon camera",
+        "佳能数码相机",
+    ],
 }
 
 # SERVICE_ONLY_HINTS 收敛至 route_classifier.py，从那里读取
@@ -629,8 +713,10 @@ class DualRouteRetriever:
         """
         检测query明确指向哪些手册。
 
-        使用别名映射检测：若query文本中包含某手册的别名
-        （如"人体工学椅"或"工学椅"），则将该手册加入候选。
+        匹配策略：
+        - 中文别名（含中文字符）：用子串匹配，因为 \b 在中文连续文本中不工作
+        - 英文别名 ≤3 字符：全词边界匹配，避免 "ac" 误匹配 "vacuum"
+        - 英文别名 ≥4 字符：子串匹配，风险可控
         别名命中得分 = sum(min(len(alias), 8) for alias in hits)，
         长别名命中权重更高。
 
@@ -638,8 +724,25 @@ class DualRouteRetriever:
             按得分降序排列的手册候选列表[(手册名, 别名得分)]
         """
         scores: List[Tuple[str, float]] = []
+        query_lower = query.lower()
         for manual_name, aliases in self.manual_alias_map.items():
-            hits = [alias for alias in aliases if alias and alias.lower() in query.lower()]
+            hits = []
+            for alias in aliases:
+                if not alias:
+                    continue
+                al = alias.lower()
+                if re.search(r'[\u4e00-\u9fff]', alias):
+                    # 中文别名：用子串匹配（\b 对中文不生效）
+                    if al in query_lower:
+                        hits.append(alias)
+                elif len(alias) <= 3:
+                    # 英文短别名：用全词边界匹配
+                    if re.search(r'\b' + re.escape(al) + r'\b', query_lower):
+                        hits.append(alias)
+                else:
+                    # 英文长别名：子串匹配
+                    if al in query_lower:
+                        hits.append(alias)
             if hits:
                 # 长别名命中得分更高（min(len,8)防止极端别名）
                 alias_score = sum(min(len(alias), 8) for alias in hits)
@@ -914,8 +1017,24 @@ class DualRouteRetriever:
         content_score = self._lexical_similarity(query, content)
         # 章节标题词项相似度
         section_score = self._lexical_similarity(query, section_title)
-        # 别名命中数量
-        alias_hits = sum(1 for alias in aliases if alias and alias.lower() in query.lower())
+        # 别名命中数量（中文子串匹配 / 英文短别名全词匹配 / 英文长别名子串匹配）
+        alias_hits = 0
+        for alias in aliases:
+            if not alias:
+                continue
+            al = alias.lower()
+            if re.search(r'[\u4e00-\u9fff]', alias):
+                # 中文别名：子串匹配
+                if al in query.lower():
+                    alias_hits += 1
+            elif len(alias) <= 3:
+                # 英文短别名：全词边界匹配
+                if re.search(r'\b' + re.escape(al) + r'\b', query.lower()):
+                    alias_hits += 1
+            else:
+                # 英文长别名：子串匹配
+                if al in query.lower():
+                    alias_hits += 1
         # 别名得分: 命中数量 / min(别名总数,4)，最多归一化为1.0
         alias_score = min(1.0, alias_hits / max(1, min(len(aliases), 4)))
         # 手册名相似度（去掉"手册"后缀）
