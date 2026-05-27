@@ -236,8 +236,16 @@ def load_detail_rows(detail_path: Path) -> List[Dict[str, Any]]:
 def write_submission_row(path: Path, record: Dict[str, Any]) -> None:
     """追加单条答案到提交文件（增量写入）。"""
     file_exists = path.exists()
-    with path.open("a", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.writer(handle)
+    # 使用标准 utf-8 编码（不带 BOM），避免平台兼容性问题
+    # 使用 QUOTE_ALL 确保所有字段都被引号包裹，防止特殊字符导致格式错误
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.writer(
+            handle,
+            quoting=csv.QUOTE_ALL,        # 所有字段都用引号包裹
+            quotechar='"',               # 双引号作为引号字符
+            doublequote=True,             # 字段内若有引号则用双引号转义
+            lineterminator="\n",         # 统一使用 LF 换行，避免 Windows CRLF 导致的空行问题
+        )
         if not file_exists:
             writer.writerow(["id", "ret"])
         writer.writerow([record["id"], record["answer"]])
@@ -255,8 +263,8 @@ def write_detail_row(path: Path, record: Dict[str, Any]) -> None:
         "classifier_avg_confidence", "question", "answer",
     ]
     file_exists = path.exists()
-    with path.open("a", encoding="utf-8-sig", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+    with path.open("a", encoding="utf-8", newline="", lineterminator="\n") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
         if not file_exists:
             writer.writeheader()
         writer.writerow({key: record[key] for key in fieldnames})
