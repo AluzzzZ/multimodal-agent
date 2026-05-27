@@ -162,7 +162,7 @@ class KnowledgeBaseBuilder:
         if manual_dir:
             self.manual_dir = Path(manual_dir)
         else:
-            self.manual_dir = PROJECT_ROOT / "手册"
+            self.manual_dir = PROJECT_ROOT / "手册new"
 
         self.include_excluded_files = include_excluded_files
         self.index_dir = PROJECT_ROOT / "knowledge_base" / "index"
@@ -241,9 +241,14 @@ class KnowledgeBaseBuilder:
 
         切分策略:
         1. 若文本长度<=CHUNK_SIZE，直接返回
-        2. 否则按CHUNK_SIZE划分窗口，优先在句子边界(。！？
-)截断
-        3. 连续窗口间有CHUNK_OVERLAP重叠，保证跨句子边界的上下文不丢失
+        2. 自动检测语言（中文/英文/混排），动态选择句子分隔符
+        3. 按CHUNK_SIZE划分窗口，优先在句子边界截断
+        4. 连续窗口间有CHUNK_OVERLAP重叠，保证跨句子边界的上下文不丢失
+
+        语言检测规则:
+        - 有中文 → 主要使用中文分隔符（。！？\n）
+        - 有英文句号 → 加入英文分隔符（.  .?\n）
+        - 纯英文 → 英文分隔符优先（. ? ! \n 步骤编号 Step ）
 
         防止死循环机制: 若CHUNK_OVERLAP过大导致next_start<=previous_start，
         强制将游标推进到end位置，确保每次循环都有进展。
@@ -255,6 +260,25 @@ class KnowledgeBaseBuilder:
         if len(text) <= self.CHUNK_SIZE:
             return [text]
 
+        # ---- 语言检测 ----
+        has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
+        has_english_period = '.' in text
+
+        # 中文分隔符（优先级最高）
+        zh_seps = ['。', '！', '？', '\n']
+        # 英文分隔符：句号(独立成句)、问号、感叹号、换行、步骤编号
+        en_seps = ['. ', '.\n', '? ', '!\n', '?\n', '!\n', '\n', 'Step ', 'step ']
+
+        if has_chinese and has_english_period:
+            # 混排文本：中文边界优先，英文句号作 fallback
+            separators = zh_seps + en_seps
+        elif has_chinese:
+            # 纯中文
+            separators = zh_seps
+        else:
+            # 纯英文
+            separators = en_seps
+
         chunks = []
         start = 0
         text_len = len(text)
@@ -265,10 +289,10 @@ class KnowledgeBaseBuilder:
 
             # 优先在句子边界处截断，保持句子完整性
             if end < text_len:
-                for sep in ['。', '！', '？', '\n']:
+                for sep in separators:
                     boundary = text.rfind(sep, start, end)
                     if boundary > start:
-                        end = boundary + 1
+                        end = boundary + len(sep)
                         break
 
             chunk = text[start:end].strip()
