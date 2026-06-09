@@ -109,18 +109,33 @@ class ManualParser:
     def extract_sections(raw_content: str) -> List[Dict[str, str]]:
         """
         按标题切分章节，返回带标题的结构化段落。
-        当前手册中大量标题出现在:
-        - 行首: # 标题
-        - 占位图后: <PIC>[id]  # 标题
+
+        通用标题识别策略（适用于各种领域的手册）:
+        - 行首 # 标题
+        - 句号/感叹号/问号后换行的 # 标题
+        - <PIC> 后换行的 # 标题
+
+        过滤策略（防止误判）:
+        - 排除正文中间出现的 #（如 "规定详见 # 消音器"）
+        - 排除目录项（如 ".12 启动与停机"）
+        - 对 # 后紧跟正文的情况，按标点截断标题和正文
         """
         normalized = ManualParser.normalize_manual_text(raw_content)
         if not normalized:
             return []
 
-        pattern = re.compile(r'(?:(?<=\n)|^)\s*#\s*([^\n#]{1,80})')
-        matches = list(pattern.finditer(normalized))
+        # 找所有 # 候选位置，同时记录 # 前面1个字符
+        candidate_pattern = re.compile(r'.?(?<=[。！？\n])\s*#\s*([^\n#]{1,80})')
+        matches = list(candidate_pattern.finditer(normalized))
+
         if not matches:
-            return [{"title": "全文", "content": normalized}]
+            # 兜底：尝试纯行首 #（适用于单行文件开头标题）
+            fallback_pattern = re.compile(r'^(?!<PIC>)#\s*([^\n#]{1,80})')
+            fallback_matches = list(fallback_pattern.finditer(normalized))
+            if fallback_matches:
+                matches = fallback_matches
+            else:
+                return [{"title": "全文", "content": normalized}]
 
         sections: List[Dict[str, str]] = []
 
@@ -130,14 +145,138 @@ class ManualParser:
                 sections.append({"title": "概述", "content": preface})
 
         for idx, match in enumerate(matches):
-            title = re.sub(r'\s+', ' ', match.group(1)).strip()
+            raw_title = re.sub(r'\s+', ' ', match.group(1)).strip()
+            # 排除目录项模式：标题以 .数字 结尾
+            if re.search(r'\.\d+\s*$', raw_title):
+                continue
+
+            # 处理标题和正文粘连：# 标题 正文
+            # 按第一个句末标点或列表编号截断
+            stop_markers = [
+                '。', '！', '？', '；', '：',
+                '1.', '2.', '3.', '4.', '5.', '6.', '7.', '8.', '9.',
+                '1、', '2、', '3、', '4、', '5、', '6、', '7、', '8、', '9、',
+                '1)', '2)', '3)', '4)', '5)', '6)', '7)', '8)', '9)',
+            ]
+            split_pos = None
+            for marker in stop_markers:
+                pos = raw_title.find(marker)
+                if pos > 3 and (split_pos is None or pos < split_pos):
+                    split_pos = pos
+
+            if split_pos is not None:
+                title = raw_title[:split_pos].strip()
+                inline_body = raw_title[split_pos:].strip()
+            else:
+                title = raw_title
+                inline_body = ''
+
+            title = re.sub(r'\s*[（(]图\d+[）)]\s*$', '', title)
+            title = re.sub(r'\s*[（(](?:PIC|pic)[）)]\s*$', '', title)
+            title = re.sub(r'\s+', ' ', title).strip()
+            if not title:
+                continue
+
             start = match.end()
             end = matches[idx + 1].start() if idx + 1 < len(matches) else len(normalized)
             body = normalized[start:end].strip()
+            if inline_body:
+                body = (inline_body + '\n' + body).strip()
+
             section_text = f"# {title}\n{body}".strip() if body else f"# {title}"
             sections.append({"title": title, "content": section_text})
 
         return sections
+
+    @staticmethod
+    def is_english_manual(manual_name: str, text: str) -> bool:
+        """粗略判断是否为英文手册。"""
+        if "英文手册" in (manual_name or ""):
+            return True
+        sample = (text or "")[:2000]
+        if not sample:
+            return False
+        chinese_count = len(re.findall(r'[\u4e00-\u9fff]', sample))
+        english_words = re.findall(r'[A-Za-z]{3,}', sample)
+        return chinese_count < 20 and len(english_words) >= 30
+
+    @staticmethod
+    def _clean_english_line(line: str) -> str:
+        line = re.sub(r'\s+', ' ', (line or '').strip())
+        line = re.sub(r'\b(before|after|to|the|a|an)([A-Za-z]{2,})\b', r'\1 \2', line, flags=re.IGNORECASE)
+        return line.strip(' -:;,.')
+
+    @staticmethod
+    def extract_english_sections(raw_content: str) -> List[Dict[str, str]]:
+        """英文手册单独章节切分，避免标题/正文粘连。"""
+        normalized = ManualParser.normalize_manual_text(raw_content)
+        if not normalized:
+            return []
+
+        lines = [line.strip() for line in normalized.split('\n')]
+        sections: List[Dict[str, str]] = []
+        current_title = "概述"
+        current_body: List[str] = []
+
+        def flush_section():
+            nonlocal current_body, current_title
+            body_lines = [line for line in current_body if line and line != '#']
+            body = '\n'.join(body_lines).strip()
+            if current_title == "概述" and not body:
+                current_body = []
+                return
+            content = f"# {current_title}\n{body}".strip() if body else f"# {current_title}"
+            sections.append({"title": current_title, "content": content})
+            current_body = []
+
+        known_titles = {
+            'important', 'danger', 'warning', 'caution', 'note', 'introduction',
+            'general description', 'before first use', 'the nutriu app', 'preparing for use',
+            'using the appliance', 'food table', 'airfrying', 'cleaning', 'cleaning table',
+            'storage', 'recycling', 'troubleshooting', 'guarantee and support',
+            'declaration of conformity', 'factory reset', 'device compatibility',
+            'software updates', 'table of contents'
+        }
+
+        for raw_line in lines:
+            line = ManualParser._clean_english_line(raw_line)
+            if not line:
+                continue
+
+            line = re.sub(r'^#\s*', '', line).strip()
+            lower = line.lower()
+
+            is_heading = False
+            heading = line
+            body_part = ""
+
+            if lower in known_titles:
+                is_heading = True
+            elif re.fullmatch(r'[A-Z][A-Za-z/&()\- ]{1,50}', line) and len(line.split()) <= 6:
+                is_heading = True
+            else:
+                for title in sorted(known_titles, key=len, reverse=True):
+                    if lower.startswith(title + ' '):
+                        is_heading = True
+                        heading = line[:len(title)].strip()
+                        body_part = line[len(title):].strip()
+                        break
+
+            if is_heading:
+                if current_body or current_title != "概述":
+                    flush_section()
+                current_title = heading.title() if heading.islower() else heading
+                if body_part:
+                    current_body.append(body_part)
+                continue
+
+            current_body.append(line)
+
+        if current_body or current_title != "概述":
+            flush_section()
+
+        return sections or [{"title": "全文", "content": normalized}]
+
 
     @staticmethod
     def extract_image_ids(text: str) -> List[str]:
@@ -146,15 +285,13 @@ class ManualParser:
 
 
 class KnowledgeBaseBuilder:
-    """知识库构建器 - 内存友好版本"""
+    """知识库构建器 - 内存友好版本（增强分块）"""
 
     # 内存优化配置
-    # CHUNK_SIZE / CHUNK_OVERLAP 从 settings 读取，不使用类级别硬编码
     BATCH_EMBED_SIZE = 16  # 每批嵌入处理的文档数
     GC_INTERVAL = 5  # 每处理N个文件后执行GC
-    SAVE_INTERVAL = 5  # 每处理N个文件后执行一次完整保存，降低I/O频率
+    SAVE_INTERVAL = 5  # 每处理N个文件后执行一次完整保存
     DEFAULT_EXCLUDED_FILES = {"汇总英文手册.txt"}
-    # 图片上下文扩展配置
     PIC_CONTEXT_PREFIX = 60  # 图片占位符前保留的字符数
     PIC_CONTEXT_SUFFIX = 40  # 图片占位符后保留的字符数
 
@@ -165,11 +302,10 @@ class KnowledgeBaseBuilder:
             self.manual_dir = PROJECT_ROOT / "手册new"
 
         self.include_excluded_files = include_excluded_files
-        self.index_dir = PROJECT_ROOT / "knowledge_base" / "index"
+        self.index_dir = PROJECT_ROOT / "knowledge_base" / "index_v1"
         self.progress_file = self.index_dir / "build_progress.json"
 
-        # 从 settings 读取 chunk 参数，消除与 rag_engine 配置的硬编码差异
-        # 统一配置值：CHUNK_SIZE=500, CHUNK_OVERLAP=50
+        # 从 settings 读取 chunk 参数，建议在 config.py 中设置 chunk_size=400, chunk_overlap=50
         self.CHUNK_SIZE = settings.chunk_size
         self.CHUNK_OVERLAP = settings.chunk_overlap
 
@@ -188,7 +324,6 @@ class KnowledgeBaseBuilder:
         """延迟加载RAG引擎"""
         if self._rag_engine is None:
             from src.modules.rag_engine import get_rag_engine, reset_rag_engine
-            # 如果已初始化过，先重置
             if self._initialized:
                 reset_rag_engine()
             self._rag_engine = get_rag_engine()
@@ -219,8 +354,6 @@ class KnowledgeBaseBuilder:
     def _get_existing_doc_ids(self) -> Set[str]:
         """获取已存在的文档ID"""
         existing_ids = set()
-
-        # 从metadata中读取已存在的ID
         metadata_file = self.index_dir / settings.metadata_file
         if metadata_file.exists():
             try:
@@ -232,83 +365,176 @@ class KnowledgeBaseBuilder:
                         existing_ids.add(doc["doc_id"])
             except Exception:
                 pass
-
         return existing_ids
 
-    def _chunk_text(self, text: str) -> List[str]:
+    def _chunk_text(self, text: str, section_title: str = "") -> List[str]:
         """
-        将长文本切分为固定大小的文本块。
+        将长文本切分为语义边界感知的文本块（增强版）。
 
-        切分策略:
+        切分策略（优先级从高到低）:
         1. 若文本长度<=CHUNK_SIZE，直接返回
-        2. 自动检测语言（中文/英文/混排），动态选择句子分隔符
-        3. 按CHUNK_SIZE划分窗口，优先在句子边界截断
-        4. 连续窗口间有CHUNK_OVERLAP重叠，保证跨句子边界的上下文不丢失
+        2. 优先按段落边界（空行）切分
+        3. 其次按列表项边界（•、、数字编号、字母编号等）切分
+        4. 最后按句子边界切分（中文：。！？，英文：. ? !）
+        5. 连续窗口间有CHUNK_OVERLAP重叠
 
         语言检测规则:
         - 有中文 → 主要使用中文分隔符（。！？\n）
-        - 有英文句号 → 加入英文分隔符（.  .?\n）
-        - 纯英文 → 英文分隔符优先（. ? ! \n 步骤编号 Step ）
+        - 有英文句号 → 加入英文分隔符（. ? ! \n Step等）
 
         防止死循环机制: 若CHUNK_OVERLAP过大导致next_start<=previous_start，
-        强制将游标推进到end位置，确保每次循环都有进展。
-
-        Returns:
-            切分后的文本块列表
+        强制将游标推进到end位置。
         """
         text = text.strip()
-        if len(text) <= self.CHUNK_SIZE:
-            return [text]
+        if not text:
+            return []
 
-        # ---- 语言检测 ----
+        title_prefix = f"{section_title}\n" if section_title else ""
+
+        if len(text) <= self.CHUNK_SIZE:
+            return [title_prefix + text]
+
         has_chinese = bool(re.search(r'[\u4e00-\u9fff]', text))
         has_english_period = '.' in text
 
-        # 中文分隔符（优先级最高）
-        zh_seps = ['。', '！', '？', '\n']
-        # 英文分隔符：句号(独立成句)、问号、感叹号、换行、步骤编号
-        en_seps = ['. ', '.\n', '? ', '!\n', '?\n', '!\n', '\n', 'Step ', 'step ']
+        # --- 增强的列表项分隔符（覆盖更多格式）---
+        list_seps = [
+            # 标准项目符号
+            '\n• ', '\n· ', '\n– ', '\n— ', '\n ', '\n- ',
+            # 数字编号（中英文）
+            '\n1. ', '\n2. ', '\n3. ', '\n4. ', '\n5. ',
+            '\n6. ', '\n7. ', '\n8. ', '\n9. ', '\n0. ',
+            '\n1、', '\n2、', '\n3、', '\n4、', '\n5、',
+            '\n1)', '\n2)', '\n3)', '\n4)', '\n5)',
+            '\n(1)', '\n(2)', '\n(3)', '\n(4)', '\n(5)',
+            '\n1）', '\n2）', '\n3）', '\n4）', '\n5）',
+            # 字母编号（英文常见）
+            '\na) ', '\nb) ', '\nc) ', '\nd) ', '\ne) ',
+            '\nA) ', '\nB) ', '\nC) ', '\nD) ', '\nE) ',
+            '\na. ', '\nb. ', '\nc. ', '\nd. ', '\ne. ',
+            '\nA. ', '\nB. ', '\nC. ', '\nD. ', '\nE. ',
+            # 英文步骤关键词
+            '\nStep ', '\nstep ', '\nNote: ', '\nTIP: ',
+        ]
+        en_sentence_seps = ['. ', '.\n', '? ', '!\n', '?\n', '!? ', '! ']
+        zh_sentence_seps = ['。', '！', '？']
+        paragraph_sep = '\n\n'
 
         if has_chinese and has_english_period:
-            # 混排文本：中文边界优先，英文句号作 fallback
-            separators = zh_seps + en_seps
+            separators = [paragraph_sep] + list_seps + zh_sentence_seps + en_sentence_seps
         elif has_chinese:
-            # 纯中文
-            separators = zh_seps
+            separators = [paragraph_sep] + list_seps + zh_sentence_seps
         else:
-            # 纯英文
-            separators = en_seps
+            separators = [paragraph_sep] + list_seps + en_sentence_seps
 
         chunks = []
         start = 0
         text_len = len(text)
+        last_normalized_chunk = ""
 
         while start < text_len:
             previous_start = start
             end = start + self.CHUNK_SIZE
 
-            # 优先在句子边界处截断，保持句子完整性
             if end < text_len:
+                best_boundary = -1
                 for sep in separators:
-                    boundary = text.rfind(sep, start, end)
-                    if boundary > start:
-                        end = boundary + len(sep)
-                        break
+                    if sep == paragraph_sep:
+                        boundary = text.rfind('\n\n', start, end)
+                        if boundary > start:
+                            best_boundary = boundary + 2
+                            break
+                    else:
+                        boundary = text.rfind(sep, start, end)
+                        if boundary > start:
+                            best_boundary = max(best_boundary, boundary + len(sep))
+                if best_boundary > start:
+                    end = best_boundary
 
             chunk = text[start:end].strip()
+            normalized_chunk = re.sub(r'\s+', ' ', chunk)
             if chunk:
-                chunks.append(chunk)
+                if normalized_chunk != last_normalized_chunk:
+                    chunks.append(title_prefix + chunk)
+                    last_normalized_chunk = normalized_chunk
 
             if end >= text_len:
                 break
 
-            # 计算下一窗口起点，确保有重叠且游标始终前进
+            remaining_len = text_len - end
+            if remaining_len < max(40, self.CHUNK_OVERLAP // 2):
+                tail_chunk = text[max(0, end - self.CHUNK_OVERLAP):].strip()
+                normalized_tail = re.sub(r'\s+', ' ', tail_chunk)
+                if tail_chunk and normalized_tail != last_normalized_chunk:
+                    chunks.append(title_prefix + tail_chunk)
+                break
+
             next_start = max(end - self.CHUNK_OVERLAP, previous_start + 1)
             if next_start <= previous_start:
                 next_start = end
             start = next_start
 
         return chunks
+
+    def _chunk_english_text(self, text: str, section_title: str = "") -> List[str]:
+        """英文手册单独分块：按段落/句子聚合，避免滑窗碎片。"""
+        text = text.strip()
+        if not text:
+            return []
+
+        title_prefix = f"{section_title}\n" if section_title else ""
+        body = re.sub(r'^#\s*[^\n]+\n?', '', text).strip() if text.startswith('#') else text
+        if not body:
+            return [title_prefix + text]
+
+        paragraphs = [p.strip() for p in re.split(r'\n{2,}', body) if p.strip()]
+        if not paragraphs:
+            paragraphs = [body]
+
+        chunks: List[str] = []
+        current = ""
+
+        def flush_current():
+            nonlocal current
+            current = current.strip()
+            if current:
+                chunks.append(title_prefix + current)
+            current = ""
+
+        for para in paragraphs:
+            para = re.sub(r'\s+', ' ', para).strip()
+            if not para:
+                continue
+
+            if len(para) > self.CHUNK_SIZE:
+                sentences = re.split(r'(?<=[.!?])\s+', para)
+                for sentence in sentences:
+                    sentence = sentence.strip()
+                    if not sentence:
+                        continue
+                    candidate = f"{current} {sentence}".strip() if current else sentence
+                    if len(candidate) <= self.CHUNK_SIZE:
+                        current = candidate
+                    else:
+                        flush_current()
+                        if len(sentence) <= self.CHUNK_SIZE:
+                            current = sentence
+                        else:
+                            for i in range(0, len(sentence), self.CHUNK_SIZE):
+                                part = sentence[i:i + self.CHUNK_SIZE].strip()
+                                if part:
+                                    chunks.append(title_prefix + part)
+            else:
+                candidate = f"{current}\n\n{para}".strip() if current else para
+                if len(candidate) <= self.CHUNK_SIZE:
+                    current = candidate
+                else:
+                    flush_current()
+                    current = para
+
+        flush_current()
+        return chunks or [title_prefix + body]
+
 
     def _process_single_manual(
         self,
@@ -329,7 +555,12 @@ class KnowledgeBaseBuilder:
             manual_name = manual_file.stem
             manual_text, manual_image_ids = ManualParser.parse_manual_file(raw_content)
             bound_text = ManualParser.inject_image_ids(manual_text, manual_image_ids)
-            sections = ManualParser.extract_sections(bound_text)
+            is_english_manual = ManualParser.is_english_manual(manual_name, bound_text)
+            sections = (
+                ManualParser.extract_english_sections(bound_text)
+                if is_english_manual
+                else ManualParser.extract_sections(bound_text)
+            )
 
             for i, section in enumerate(sections):
                 content = section["content"].strip()
@@ -337,13 +568,15 @@ class KnowledgeBaseBuilder:
                 if not content:
                     continue
 
-                # 分块处理。每个chunk保留本地图片绑定关系，避免整章图片污染所有块。
-                chunks = self._chunk_text(content)
+                chunks = (
+                    self._chunk_english_text(content, section_title)
+                    if is_english_manual
+                    else self._chunk_text(content, section_title)
+                )
 
                 for j, chunk in enumerate(chunks):
                     doc_id = f"manual_{manual_name}_s{i}_c{j}"
 
-                    # 跳过已存在的文档
                     if doc_id in existing_ids:
                         continue
 
@@ -388,12 +621,11 @@ class KnowledgeBaseBuilder:
         logger.info("开始构建知识库 (内存优化模式)...")
         logger.info(f"手册目录: {self.manual_dir}")
         logger.info(f"Embedding后端: {settings.embedding_backend}")
+        logger.info(f"分块大小: {self.CHUNK_SIZE}, 重叠: {self.CHUNK_OVERLAP}")
         logger.info("=" * 60)
 
-        # 初始化RAG引擎
         self.initialize()
 
-        # 检查手册目录
         if not self.manual_dir.exists():
             logger.error(f"手册目录不存在: {self.manual_dir}")
             return
@@ -405,40 +637,32 @@ class KnowledgeBaseBuilder:
                 if path.name not in self.DEFAULT_EXCLUDED_FILES
             ]
             if self.DEFAULT_EXCLUDED_FILES:
-                logger.info(
-                    f"默认排除低相关度手册: {', '.join(sorted(self.DEFAULT_EXCLUDED_FILES))}"
-                )
+                logger.info(f"默认排除低相关度手册: {', '.join(sorted(self.DEFAULT_EXCLUDED_FILES))}")
         if not txt_files:
             logger.error(f"未找到txt手册文件: {self.manual_dir}")
             return
 
         self._total_files = len(txt_files)
 
-        # 如果强制重建，先清空
         if force_rebuild:
             logger.info("强制重建：清空现有知识库...")
             self.rag_engine.rebuild()
             progress = {"processed_files": [], "total_docs": 0, "total_chars": 0}
             existing_ids: Set[str] = set()
         else:
-            # 加载进度
             progress = self._load_progress()
             existing_ids = self._get_existing_doc_ids()
             logger.info(f"发现 {len(existing_ids)} 个已存在文档，将跳过重复")
 
-        # 获取已处理的文件列表
         processed_files = set(progress.get("processed_files", []))
         self._total_docs = progress.get("total_docs", 0)
         self._total_chars = progress.get("total_chars", 0)
 
-        # 统计
         new_docs = 0
         new_chars = 0
 
         for idx, txt_file in enumerate(txt_files):
             file_name = txt_file.name
-
-            # 跳过已处理的文件
             if file_name in processed_files:
                 logger.info(f"[{idx+1}/{self._total_files}] 跳过已处理: {file_name}")
                 continue
@@ -446,20 +670,16 @@ class KnowledgeBaseBuilder:
             logger.info(f"[{idx+1}/{self._total_files}] 处理中: {file_name}")
             self._processed_files = idx + 1
 
-            # 处理单个手册
             docs, chars, success = self._process_single_manual(txt_file, existing_ids)
 
             if docs:
-                # 增量添加文档
                 self.rag_engine.add_documents(docs, doc_type="text")
                 existing_ids.update(doc["doc_id"] for doc in docs)
-
                 new_docs += len(docs)
                 new_chars += chars
                 self._total_docs += len(docs)
                 self._total_chars += chars
 
-            # 仅在处理成功时更新进度，避免失败文件被错误标记为已完成
             if success:
                 processed_files.add(file_name)
                 progress = {
@@ -469,11 +689,12 @@ class KnowledgeBaseBuilder:
                 }
                 self._save_progress(progress)
 
-            # 定期GC + 批量保存（降低I/O频率，同时保证每5个文件落盘一次）
+            # 定期GC
             if (idx + 1) % self.GC_INTERVAL == 0:
                 gc.collect()
                 logger.debug(f"内存清理完成，当前文档数: {self._total_docs}")
 
+            # 定期保存
             if (idx + 1) % self.SAVE_INTERVAL == 0 or (idx + 1) == self._total_files:
                 self.rag_engine.save_knowledge_base()
                 logger.debug(f"[保存] 已保存知识库（已处理 {idx + 1}/{self._total_files} 个文件）")
@@ -554,7 +775,6 @@ class KnowledgeBaseBuilder:
 
         self.rag_engine.add_documents(sample_docs, doc_type="text")
         self.rag_engine.save_knowledge_base()
-
         logger.info(f"添加了 {len(sample_docs)} 个赛题示例文档")
 
     def show_stats(self):
@@ -563,7 +783,6 @@ class KnowledgeBaseBuilder:
         print("知识库统计信息")
         print("=" * 60)
 
-        # 索引文件信息
         if self.index_dir.exists():
             for f in self.index_dir.iterdir():
                 if f.is_file():
@@ -575,7 +794,6 @@ class KnowledgeBaseBuilder:
                     else:
                         print(f"  {f.name}: {size} B")
 
-        # 构建进度
         if self.progress_file.exists():
             try:
                 with open(self.progress_file, 'r', encoding='utf-8') as f:
@@ -588,16 +806,12 @@ class KnowledgeBaseBuilder:
                 pass
 
         print("  " + "-" * 40)
-
-        # 手册文件信息
         print(f"  手册目录: {self.manual_dir}")
         if self.manual_dir.exists():
             txt_files = list(self.manual_dir.glob("*.txt"))
             print(f"  手册数量: {len(txt_files)}")
             total_size = sum(f.stat().st_size for f in txt_files)
             print(f"  总大小: {total_size / 1024 / 1024:.2f} MB")
-
-            # 显示前5个手册
             if len(txt_files) > 5:
                 print("  前5个手册:")
                 for tf in txt_files[:5]:
@@ -610,7 +824,6 @@ class KnowledgeBaseBuilder:
                     print(f"    - {tf.name}: {size / 1024:.1f} KB")
         else:
             print("  (手册目录不存在)")
-
         print("=" * 60 + "\n")
 
 
@@ -619,7 +832,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="知识库构建工具 (内存优化版)",
+        description="知识库构建工具 (内存优化版，增强分块)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
