@@ -13,6 +13,7 @@ import argparse
 import csv
 import json
 import statistics
+import time
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -236,15 +237,14 @@ def load_detail_rows(detail_path: Path) -> List[Dict[str, Any]]:
 def write_submission_row(path: Path, record: Dict[str, Any]) -> None:
     """追加单条答案到提交文件（增量写入）。"""
     file_exists = path.exists()
-    # 使用标准 utf-8 编码（不带 BOM），避免平台兼容性问题
-    # 使用 QUOTE_ALL 确保所有字段都被引号包裹，防止特殊字符导致格式错误
-    with path.open("a", encoding="utf-8", newline="") as handle:
+    # utf-8-sig 追加时只在文件开头写一次 BOM，后续追加不会重复写 BOM
+    with path.open("a", encoding="utf-8-sig", newline="") as handle:
         writer = csv.writer(
             handle,
-            quoting=csv.QUOTE_ALL,        # 所有字段都用引号包裹
-            quotechar='"',               # 双引号作为引号字符
-            doublequote=True,             # 字段内若有引号则用双引号转义
-            lineterminator="\n",         # 统一使用 LF 换行，避免 Windows CRLF 导致的空行问题
+            quoting=csv.QUOTE_MINIMAL,    # 只在必要时加引号，与示例文件一致
+            quotechar='"',
+            doublequote=True,
+            lineterminator="\n",
         )
         if not file_exists:
             writer.writerow(["id", "ret"])
@@ -263,8 +263,19 @@ def write_detail_row(path: Path, record: Dict[str, Any]) -> None:
         "classifier_avg_confidence", "question", "answer",
     ]
     file_exists = path.exists()
-    with path.open("a", encoding="utf-8", newline="", lineterminator="\n") as handle:
-        writer = csv.DictWriter(handle, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, quoting=csv.QUOTE_ALL, lineterminator="\n")
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow({key: record[key] for key in fieldnames})
+
+
+def write_timing_row(path: Path, record: Dict[str, Any]) -> None:
+    """追加单条计时记录到文件（增量写入）。"""
+    fieldnames = ["id", "total", "step1", "step2", "step3", "step4", "step5", "step6"]
+    file_exists = path.exists()
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames, quoting=csv.QUOTE_ALL, lineterminator="\n")
         if not file_exists:
             writer.writeheader()
         writer.writerow({key: record[key] for key in fieldnames})
@@ -282,6 +293,9 @@ def build_summary(rows: List[Dict[str, Any]], settings_snapshot: Dict[str, Any])
         row["id"] for row in rows
         if row["dominant_route"] == "manual" and row["service_like_question"]
     ]
+
+    # 计时统计（如果 timing_rows 被传入）
+    timing_stats = {}
 
     summary = {
         "settings": settings_snapshot,
@@ -311,6 +325,40 @@ def build_summary(rows: List[Dict[str, Any]], settings_snapshot: Dict[str, Any])
         ][:20],
     }
     return summary
+
+
+def build_timing_summary(timing_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """根据计时记录生成统计摘要。"""
+    if not timing_rows:
+        return {}
+
+    totals = [r["total"] for r in timing_rows]
+    step1s = [r["step1"] for r in timing_rows]
+    step2s = [r["step2"] for r in timing_rows]
+    step3s = [r["step3"] for r in timing_rows]
+    step4s = [r["step4"] for r in timing_rows]
+    step5s = [r["step5"] for r in timing_rows]
+    step6s = [r["step6"] for r in timing_rows]
+
+    sorted_totals = sorted(totals)
+
+    return {
+        "count": len(timing_rows),
+        "total": {
+            "avg": round(statistics.mean(totals), 3),
+            "median": round(statistics.median(totals), 3),
+            "min": round(min(totals), 3),
+            "max": round(max(totals), 3),
+            "p95": round(sorted_totals[int(len(sorted_totals) * 0.95)], 3),
+            "p99": round(sorted_totals[int(len(sorted_totals) * 0.99)], 3),
+        },
+        "step1_decomposition": {"avg": round(statistics.mean(step1s), 3)},
+        "step2_retrieval": {"avg": round(statistics.mean(step2s), 3)},
+        "step3_context": {"avg": round(statistics.mean(step3s), 3)},
+        "step4_generation": {"avg": round(statistics.mean(step4s), 3)},
+        "step5_hallucination": {"avg": round(statistics.mean(step5s), 3)},
+        "step6_image": {"avg": round(statistics.mean(step6s), 3)},
+    }
 
 
 def write_summary_md(path: Path, summary: Dict[str, Any], rows: List[Dict[str, Any]]) -> None:
@@ -357,7 +405,7 @@ def write_summary_md(path: Path, summary: Dict[str, Any], rows: List[Dict[str, A
 def main() -> None:
     parser = argparse.ArgumentParser(description="批量生成公开题答案与质量画像")
     parser.add_argument("--questions", default="question_public.csv", help="公开题 CSV 路径")
-    parser.add_argument("--output-dir", default=str(Path("knowledge_base") / "evaluation"), help="输出目录")
+    parser.add_argument("--output-dir", default=str(Path("knowledge_base") / "evaluation_v1"), help="输出目录")
     parser.add_argument("--submission-name", default="submission_public_generated.csv", help="提交 CSV 文件名")
     parser.add_argument("--disable-llm", action="store_true", help="关闭外部 LLM，使用检索驱动兜底回答")
     parser.add_argument("--resume", action="store_true", default=True, help="启用断点续跑，自动跳过已处理的题目（默认开启）")
@@ -375,33 +423,70 @@ def main() -> None:
     detail_path = output_dir / "public_answer_detail.csv"
     summary_json_path = output_dir / "public_answer_summary.json"
     summary_md_path = output_dir / "public_answer_summary.md"
+    timing_path = output_dir / "timing_stats.csv"
 
     rows = load_questions(Path(args.questions))
     generator = ResponseGenerator()
     generator.initialize()
 
     existing_rows: List[Dict[str, Any]] = []
+    existing_timing_rows: List[Dict[str, Any]] = []
+
+    # 加载已有的 timing 文件（用于续跑）
+    if args.resume and timing_path.exists():
+        with timing_path.open("r", encoding="utf-8-sig", newline="") as handle:
+            reader = csv.DictReader(handle)
+            for row in reader:
+                row["total"] = float(row["total"])
+                row["step1"] = float(row["step1"])
+                row["step2"] = float(row["step2"])
+                row["step3"] = float(row["step3"])
+                row["step4"] = float(row["step4"])
+                row["step5"] = float(row["step5"])
+                row["step6"] = float(row["step6"])
+                existing_timing_rows.append(row)
+
     if args.resume:
         existing_rows = load_detail_rows(detail_path)
         if existing_rows:
             print(f"[断点续跑] 检测到已有 {len(existing_rows)} 条结果，将跳过已处理题目")
 
     done_ids: Set[str] = {row["id"] for row in existing_rows}
+    timing_done_ids: Set[str] = {row["id"] for row in existing_timing_rows}
     total = len(rows)
 
     analysis_rows: List[Dict[str, Any]] = list(existing_rows)
+    timing_rows: List[Dict[str, Any]] = list(existing_timing_rows)
     error_rows: List[Dict[str, Any]] = [row for row in existing_rows if row["risk_level"] == "high"]
 
     for idx, row in enumerate(rows):
         if row["id"] in done_ids:
             continue
         try:
+            start_time = time.time()
             result = generator.generate(row["question"])
+            elapsed = time.time() - start_time
+
+            # 提取计时信息
+            timing = result.get("timing", {})
+            timing_record = {
+                "id": row["id"],
+                "total": elapsed,
+                "step1": timing.get("step1_decomposition", 0),
+                "step2": timing.get("step2_retrieval", 0),
+                "step3": timing.get("step3_context", 0),
+                "step4": timing.get("step4_generation", 0),
+                "step5": timing.get("step5_hallucination", 0),
+                "step6": timing.get("step6_image", 0),
+            }
+            timing_rows.append(timing_record)
+
             record = build_analysis_record(row, result)
             analysis_rows.append(record)
             write_submission_row(submission_path, record)
             write_detail_row(detail_path, record)
-            print(f"[{idx + 1}/{total}] 完成 id={row['id']} confidence={record['confidence']}")
+            write_timing_row(timing_path, timing_record)
+            print(f"[{idx + 1}/{total}] 完成 id={row['id']} confidence={record['confidence']:.2f} 耗时={elapsed:.2f}s")
         except Exception as e:
             record = {
                 "id": row["id"],
@@ -444,14 +529,34 @@ def main() -> None:
             "rag_top_k": settings.rag_top_k,
         },
     )
+
+    # 生成计时统计摘要
+    timing_summary = build_timing_summary(timing_rows)
+    timing_summary_path = output_dir / "timing_summary.json"
+    timing_summary_path.write_text(json.dumps(timing_summary, ensure_ascii=False, indent=2), encoding="utf-8")
+
     summary_json_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
     write_summary_md(summary_md_path, summary, analysis_rows)
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(f"\n=== 计时统计 ===")
+    if timing_summary:
+        print(f"总题数: {timing_summary['count']}")
+        print(f"总耗时 - 平均: {timing_summary['total']['avg']:.3f}s, 中位数: {timing_summary['total']['median']:.3f}s, P95: {timing_summary['total']['p95']:.3f}s, 最大: {timing_summary['total']['max']:.3f}s")
+        print(f"  Step1 问题分解: {timing_summary['step1_decomposition']['avg']:.3f}s")
+        print(f"  Step2 RAG检索: {timing_summary['step2_retrieval']['avg']:.3f}s")
+        print(f"  Step3 上下文构建: {timing_summary['step3_context']['avg']:.3f}s")
+        print(f"  Step4 回答生成: {timing_summary['step4_generation']['avg']:.3f}s")
+        print(f"  Step5 幻觉检测: {timing_summary['step5_hallucination']['avg']:.3f}s")
+        print(f"  Step6 图片处理: {timing_summary['step6_image']['avg']:.3f}s")
+    else:
+        print("无计时数据")
     print(f"已输出提交文件: {submission_path}")
     print(f"已输出明细文件: {detail_path}")
     print(f"已输出摘要 JSON: {summary_json_path}")
     print(f"已输出摘要 MD: {summary_md_path}")
+    print(f"已输出计时明细: {timing_path}")
+    print(f"已输出计时摘要: {timing_summary_path}")
 
 
 if __name__ == "__main__":
