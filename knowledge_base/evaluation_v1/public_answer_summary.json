@@ -1,0 +1,72 @@
+{
+  "settings": {
+    "llm_provider": "openai",
+    "embedding_backend": "dashscope",
+    "rag_top_k": 8
+  },
+  "question_count": 400,
+  "avg_confidence": 0.936,
+  "median_confidence": 0.95,
+  "avg_answer_chars": 557,
+  "avg_keyword_coverage": 0.6368,
+  "route_distribution": {
+    "service": 52,
+    "manual": 320,
+    "mixed": 28
+  },
+  "risk_distribution": {
+    "low": 374,
+    "high": 6,
+    "medium": 20
+  },
+  "fallback_count": 0,
+  "multi_question_count": 16,
+  "answers_with_pic_marker": 252,
+  "classifier_used_question_count": 0,
+  "manual_on_service_like_count": 0,
+  "manual_on_service_like_ids": [],
+  "high_risk_examples": [
+    {
+      "id": "9",
+      "route": "service",
+      "confidence": 0.5,
+      "question": "我收到的商品少了一件，联系客服说会补发，但是过了一周还没补发！",
+      "answer_preview": "非常理解您等待一周还没收到补发的焦急心情。您的问题属于少件到货异常，我来帮您推进处理。\n\n为了尽快核实补发进度并推动解决，需要您配合提供以下信息：\n1. 订单号\n2. 签收时间\n3. 您收到的全部商品照片（能看清商品数量），如有外包装照片也请一并提供（尤其快递面单信息）\n\n我们会根据这些信息去确认补发单是否已生成、是否已发货以及当前物流状态。只要情况属实，我"
+    },
+    {
+      "id": "225",
+      "route": "manual",
+      "confidence": 0.4,
+      "question": "如何使用烤箱的烤架烤盘套装？",
+      "answer_preview": "使用烤架烤盘套装的步骤如下：\n\n1. 确认套装组成  \n   烤架烤盘套装（图6）由烤架（6a）和搪瓷容器（6b）两部分组成。  \n   <PIC>\n\n2. 放置基础烤架  \n   先将标准烤架（3）放入烤箱内合适的层位，作为套装的底座支撑。  \n   <PIC>\n\n3. 组合套装  \n   将烤架烤盘套装整体放置在已安装好的标准烤架（3）上。\n\n4. 选择"
+    },
+    {
+      "id": "266",
+      "route": "manual",
+      "confidence": 0.4,
+      "question": "How to change the default setting of the energy saving mode?",
+      "answer_preview": "To change the setting of the energy saving mode (Eco mode) on your phone:\n\n1. Select [Menu] > [Phone setup] > [Eco mode], then press [OK] to confirm.\n2. Select [On] or [Off], then "
+    },
+    {
+      "id": "303",
+      "route": "manual",
+      "confidence": 0.4,
+      "question": "From three different observing views, what buttons and interfaces should this eReader have?",
+      "answer_preview": "1. **Front View** (<PIC>)\n   - Home/ESC button: cancels an operation, exits a sub-interface, or returns to the previous interface.\n   - Speaker: 0.5W audio output.\n   - TFT LCD Dis"
+    },
+    {
+      "id": "324",
+      "route": "manual",
+      "confidence": 0.4,
+      "question": "I've heard that my jetski has cruising limitations. Please introduce them.",
+      "answer_preview": "Based on your owner's manual, here are the cruising limitations for your jetski:\n\n- **Familiarization and constant vigilance**  \n  Take time to get accustomed to handling before at"
+    },
+    {
+      "id": "363",
+      "route": "manual",
+      "confidence": 0.4,
+      "question": "How can you change the engine oil of a lawn mower?",
+      "answer_preview": "1. 准备割草机。  \n   启动发动机并让其运转约5分钟，使机油升温以便更好地排出。  \n   <PIC>  \n   然后停车，使放油侧略低于另一侧，以确保机油能够完全排空。脱开刀片控制开关（PTO），接合驻车制动，关闭发动机，拔下钥匙，并等待所有运动部件停止。\n\n2. 排出旧机油。  \n   在发动机下方放置一个接油盘。拆下放油塞和机油加注口盖/油尺。 "
+    }
+  ]
+}
