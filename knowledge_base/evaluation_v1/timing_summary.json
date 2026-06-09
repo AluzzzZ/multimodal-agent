@@ -1,0 +1,29 @@
+{
+  "count": 400,
+  "total": {
+    "avg": 49.037,
+    "median": 36.737,
+    "min": 7.934,
+    "max": 327.595,
+    "p95": 127.076,
+    "p99": 213.178
+  },
+  "step1_decomposition": {
+    "avg": 0.08
+  },
+  "step2_retrieval": {
+    "avg": 0.904
+  },
+  "step3_context": {
+    "avg": 0.001
+  },
+  "step4_generation": {
+    "avg": 13.58
+  },
+  "step5_hallucination": {
+    "avg": 34.471
+  },
+  "step6_image": {
+    "avg": 0.0
+  }
+}
