@@ -6,6 +6,7 @@
 1. 问题分解 (CoT) -> 2. RAG检索 -> 3. 上下文构建 -> 4. 回答生成 -> 5. 幻觉检测 -> 6. 图片关联
 """
 
+import time
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from loguru import logger
@@ -150,8 +151,12 @@ class ResponseGenerator:
             "sources": [],
             "reasoning": None,
             "confidence": 0.0,
-            "routes": []
+            "routes": [],
+            "timing": {}  # 耗时统计
         }
+
+        # 计时开始
+        total_start = time.time()
 
         # ========== Step 1: 问题分解 (思维链) ==========
         print(f"\n{'='*40}")
@@ -182,6 +187,9 @@ class ResponseGenerator:
         print(f"  子问题数量: {len(sub_questions)}")
         for i, sq in enumerate(sub_questions, 1):
             print(f"    [{i}] {sq}")
+
+        step1_end = time.time()
+        result["timing"]["step1_decomposition"] = round(step1_end - total_start, 3)
 
         # ========== Step 2: RAG检索 ==========
         print(f"\n{'='*40}")
@@ -295,6 +303,9 @@ class ResponseGenerator:
         print(f"    去重后总来源数: {len(all_sources)}")
         print(f"    总图片数: {len(retrieved_images)}")
 
+        step2_end = time.time()
+        result["timing"]["step2_retrieval"] = round(step2_end - step1_end, 3)
+
         # ========== Step 3: 构建上下文 ==========
         print(f"\n{'='*40}")
         print(f"[Step 3] 构建上下文")
@@ -316,6 +327,9 @@ class ResponseGenerator:
                 manual = src.get('metadata', {}).get('manual_name', 'N/A')
                 print(f"    [{i}] {title} - {manual}")
 
+        step3_end = time.time()
+        result["timing"]["step3_context"] = round(step3_end - step2_end, 3)
+
         # ========== Step 4: 生成回答 ==========
         print(f"\n{'='*40}")
         print(f"[Step 4] 生成回答")
@@ -334,6 +348,9 @@ class ResponseGenerator:
 
         print(f"  回答长度: {len(final_answer)} 字符")
         print(f"  回答预览: {final_answer[:200]}...")
+
+        step4_end = time.time()
+        result["timing"]["step4_generation"] = round(step4_end - step3_end, 3)
 
         # ========== Step 5: 幻觉检测与修正 ==========
         print(f"\n{'='*40}")
@@ -369,18 +386,50 @@ class ResponseGenerator:
             print(f"  跳过检测，使用默认置信度 0.7")
             result["confidence"] = 0.7
 
-        # ========== Step 6: 提取相关图片 ==========
-        # 从回答中统计 LLM 实际使用的 <PIC> 数量，图片列表按需对齐
-        pic_count_in_answer = len(re.findall(r'<PIC>', final_answer))
-        all_retrieved_images = list(set(retrieved_images))
-        if pic_count_in_answer > 0:
-            # LLM 用了多少 <PIC>，就最多传回多少张图，避免数量不匹配
+        step5_end = time.time()
+        result["timing"]["step5_hallucination"] = round(step5_end - step4_end, 3)
+
+        # ========== Step 6: 提取相关图片并替换占位符 ==========
+        # 核心策略：优先从答案中提取 <PIC>[xxx] 格式的图片 ID
+        # 只有当答案中没有 <PIC>[xxx] 时，才使用检索到的图片
+
+        # 统计答案中已有的 <PIC> 总数（包括裸 <PIC> 和 <PIC>[xxx]）
+        pic_pattern = re.compile(r'<PIC>(?:\[([^\]]+)\])?')
+        pic_matches = list(pic_pattern.finditer(final_answer))
+        pic_count_in_answer = len(pic_matches)
+        pic_ids_in_answer = [m.group(1) for m in pic_matches if m.group(1)]
+
+        print(f"  [DEBUG] 答案长度: {len(final_answer)}")
+        print(f"  [DEBUG] <PIC> 数量: {pic_count_in_answer}")
+        print(f"  [DEBUG] <PIC>[xxx] 数量: {len(pic_ids_in_answer)}")
+        print(f"  [DEBUG] <PIC> 位置和内容: {[(m.start(), m.group()) for m in pic_matches]}")
+        print(f"  [DEBUG] 答案末尾 200 字符: {final_answer[-200:]}")
+
+        if pic_ids_in_answer:
+            # 优先使用答案中已有的图片 ID
+            result["images"] = pic_ids_in_answer
+            print(f"  从答案中提取到 {len(pic_ids_in_answer)} 个图片 ID: {pic_ids_in_answer}")
+        elif pic_count_in_answer > 0:
+            # 如果答案中有裸 <PIC> 但没有 <PIC>[xxx]，使用检索到的图片
+            all_retrieved_images = list(set(retrieved_images))
             result["images"] = all_retrieved_images[:pic_count_in_answer]
-            print(f"  回答中 <PIC> 数量: {pic_count_in_answer}，返回图片数: {len(result['images'])}")
+            print(f"  答案中有 {pic_count_in_answer} 个裸 <PIC>，使用检索图片: {result['images']}")
         else:
+            # 没有任何图片引用，使用检索到的前几张
+            all_retrieved_images = list(set(retrieved_images))
             result["images"] = all_retrieved_images[:5]
+            print(f"  答案中无 <PIC>，使用前 5 张检索图片: {result['images']}")
+
         result["sources"] = all_sources
+
+        # 将答案中的 <PIC> 占位符替换为实际的图片 ID
+        if result["images"]:
+            final_answer = self._replace_pic_placeholders(final_answer, result["images"])
         result["response"] = final_answer
+
+        step6_end = time.time()
+        result["timing"]["step6_image"] = round(step6_end - step5_end, 3)
+        result["timing"]["total"] = round(step6_end - total_start, 3)
 
         print(f"\n{'='*40}")
         print(f"[完成]")
@@ -388,6 +437,13 @@ class ResponseGenerator:
         print(f"  最终置信度: {result['confidence']:.4f}")
         print(f"  返回图片数: {len(result['images'])}")
         print(f"  返回来源数: {len(result['sources'])}")
+        print(f"  总耗时: {result['timing']['total']:.3f}s")
+        print(f"    - Step1 问题分解: {result['timing'].get('step1_decomposition', 0):.3f}s")
+        print(f"    - Step2 RAG检索: {result['timing'].get('step2_retrieval', 0):.3f}s")
+        print(f"    - Step3 上下文构建: {result['timing'].get('step3_context', 0):.3f}s")
+        print(f"    - Step4 回答生成: {result['timing'].get('step4_generation', 0):.3f}s")
+        print(f"    - Step5 幻觉检测: {result['timing'].get('step5_hallucination', 0):.3f}s")
+        print(f"    - Step6 图片处理: {result['timing'].get('step6_image', 0):.3f}s")
         print(f"\n{'='*60}\n")
 
         return result
@@ -567,14 +623,15 @@ class ResponseGenerator:
 
     def _clean_context_content(self, content: str) -> str:
         """
-        清理上下文中的图片 ID 标记，保留 <PIC> 位置提示。
+        清理上下文中的多余内容，保留 <PIC>[xxx] 图片标记。
 
         处理步骤:
-        1. 移除所有 [xxx] 格式的图片 ID
-        2. 合并多余空白字符
+        1. 保留 <PIC>[xxx] 格式的图片标记
+        2. 移除其他 [xxx] 格式的内容（如 [参考1] 等）
+        3. 合并多余空白字符
 
-        注意: 保留 <PIC> 占位符本身，用于指示图片引用位置。
-        <PIC> 通常嵌入在文本中作为图片引用标记。
+        注意: 保留 <PIC> 占位符及其图片 ID，用于指示图片引用位置。
+        <PIC>[xxx] 通常嵌入在文本中作为图片引用标记。
 
         Args:
             content: 原始手册内容
@@ -582,8 +639,34 @@ class ResponseGenerator:
         Returns:
             清理后的文本
         """
-        content_clean = re.sub(r'\[([^\]]+)\]', '', content)
-        return re.sub(r'\s+', ' ', content_clean).strip()
+        # 收集所有 <PIC>[xxx] 格式，替换为临时占位符
+        pic_replacements = {}
+        counter = [0]
+
+        def save_pic(match):
+            pic_id = match.group(1)
+            placeholder = f"__PROTECTED_PIC_{counter[0]}__"
+            pic_replacements[placeholder] = pic_id
+            counter[0] += 1
+            return placeholder
+
+        # 保护 <PIC>[xxx] 格式
+        content_clean = re.sub(r'<PIC>\[([^\]]+)\]', save_pic, content)
+
+        # 移除其他所有 [xxx] 格式
+        content_clean = re.sub(r'\[[^\]]*\]', '', content_clean)
+
+        # 还原受保护的 <PIC>[xxx]
+        for placeholder, pic_id in pic_replacements.items():
+            content_clean = content_clean.replace(placeholder, f'<PIC>[{pic_id}]')
+
+        # 合并多余空白
+        content_clean = re.sub(r'\s+', ' ', content_clean).strip()
+
+        # 确保 <PIC> 保留为 <PIC>[xxx] 格式（如果之前只有 <PIC>）
+        content_clean = re.sub(r'<PIC>(?!\[[^\]]+\])', '<PIC>', content_clean)
+
+        return content_clean
 
     def _generate_answer(
         self,
@@ -621,11 +704,14 @@ class ResponseGenerator:
 {context}
 
 请生成回答，要求：
-1. 准确基于参考资料
-2. 如需包含图片，在上下文中含有对应图示的位置使用 <PIC> 标记；每段最多 1-2 个，不要堆砌
-3. 如果用户一次问了多个问题，必须逐项回答，不能遗漏
-4. 回答结构清晰，优先使用编号或分段
-5. 如有不确定信息，明确说明，不要编造政策或细节
+1. 语言：回答语言应与用户提问语言保持一致（用户用中文提问则用中文回答，用英文提问则用英文回答）
+2. 准确基于参考资料
+3. 如需包含图片，格式为 <PIC>[图片ID]，如 <PIC>[Manual36_22]、<PIC>[Manual36_23]；每段最多 1-2 个，不要堆砌
+4. 如果用户一次问了多个问题，必须逐项回答，不能遗漏
+5. 回答结构清晰，优先使用编号或分段
+6. 不要使用 Markdown 格式（禁止：**粗体**、### 标题、--- 分隔线、*斜体*）
+7. 如有不确定信息，明确说明，不要编造政策或细节
+
 
 回答：
 """
@@ -1283,6 +1369,48 @@ class ResponseGenerator:
         markers = [f"<PIC>[{img_id}]" for img_id in image_ids[:3]]
         return "相关图示：" + " ".join(markers)
 
+    def _replace_pic_placeholders(self, answer: str, image_ids: List[str]) -> str:
+        """
+        处理答案中的图片占位符。
+
+        处理策略:
+        1. 从答案中提取所有 <PIC>[xxx] 格式的图片 ID
+        2. 把 <PIC>[xxx] 替换为 <PIC>（去掉图片 ID）
+        3. 如果还有裸 <PIC>，用传入的 image_ids 补充
+        4. 在答案末尾追加完整的图片列表
+
+        Args:
+            answer: 原始答案文本
+            image_ids: 备用图片 ID 列表
+
+        Returns:
+            处理后的答案文本
+        """
+        # 从答案中提取 <PIC>[xxx] 格式的图片 ID
+        pic_ids = re.findall(r'<PIC>\[([^\]]+)\]', answer)
+
+        # 移除答案中的图片 ID，只保留 <PIC>
+        answer = re.sub(r'<PIC>\[([^\]]+)\]', '<PIC>', answer)
+
+        # 统计剩余的裸 <PIC> 数量
+        pic_count = len(re.findall(r'<PIC>', answer))
+
+        if pic_ids:
+            # 如果有 <PIC>[xxx]，用提取的图片 ID
+            image_list = pic_ids
+        elif pic_count > 0 and image_ids:
+            # 如果有裸 <PIC> 且有备用图片，用备用图片
+            image_list = image_ids[:pic_count]
+        else:
+            image_list = []
+
+        if image_list:
+            # 生成图片列表
+            image_list_str = "[" + ", ".join(f'"{img_id}"' for img_id in image_list) + "]"
+            return f"{answer}\n\n{image_list_str}"
+
+        return answer
+
     def _simple_similarity(self, left: str, right: str) -> float:
         """
         查询词项覆盖率相似度。
@@ -1365,8 +1493,8 @@ class ResponseGenerator:
             for i, source in enumerate(result["sources"], 1):
                 # 截取前200字符避免过长
                 source_text += f"{i}. {source['content'][:200]}...\n"
-                if source.get("image_ids"):
-                    source_text += f"   相关图片: {', '.join(source['image_ids'])}\n"
+                # if source.get("image_ids"):
+                #     source_text += f"   相关图片: {', '.join(source['image_ids'])}\n"
 
             result["response"] += source_text
 
