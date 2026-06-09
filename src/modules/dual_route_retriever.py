@@ -25,6 +25,7 @@ from loguru import logger
 from config import settings
 from .rag_engine import RAGEngine, get_rag_engine
 from .rag_engine import Document
+from .rag_engine_v2 import RAGEngineV2, get_rag_engine_v2
 from .route_classifier import RouteClassifier, get_route_classifier
 from .route_classifier import SERVICE_HINTS, MANUAL_HINTS, MIXED_HINTS
 from src.utils.text_utils import QueryProcessor
@@ -44,16 +45,19 @@ MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
     "可编程温控器手册": ["温控器", "可编程温控器", "恒温器", "thermostat"],
     "吹风机手册": ["吹风机", "冷机", "热机", "化油器", "hair dryer", "dryer"],
     "摩托艇手册": [
-        "摩托艇", "jetski", "jet ski", "watercraft", "喷气艇",
-        "bimini top", "anchor light", "jet wash", "bilge pump",
-        "cooling system", "engine oil", "water supply button",
-        "battery compartment", "sound system", "emission control certificate",
+    "摩托艇", "喷气艇",
+    "驾驶练习", "riding practice", "操作指南", "operation guide",
+    "personal watercraft", "PWC",  # 保留类别词但冲突风险中等
     ],
     "水泵手册": ["水泵", "泵", "pump", "水泵机组", "抽水泵"],
     "洗碗机手册": ["洗碗机", "亮碟剂", "餐具篮", "dishwasher", "dish washer"],
-    "烤箱手册": ["烤箱", "烘烤", "air fryer", "airfryer", "空气炸锅", "oven", "baking", "烤炉", "嵌入式烤箱"],
+    "烤箱手册": ["烤箱", "烘烤", "空气炸锅", "oven", "baking", "烤炉", "嵌入式烤箱"],
     "电钻手册": ["电钻", "指示灯", "DCB107", "DCB112", "drill", "cordless drill", "充电电钻"],
-    "相机手册": ["相机", "镜头", "快门", "闪光灯", "camera", "digital camera", "数码相机"],
+    # 相机手册（instax 拍立得，中文）补充英文品牌
+    "相机手册": [
+        "相机", "镜头", "快门", "闪光灯", "digital camera", "数码相机",
+        "instax", "instax square", "拍立得", "hybrid camera", "即时成像相机"
+    ],
     "空气净化器手册": ["空气净化器", "空气质量指示灯", "净化器", "air purifier", "purifier"],
     "空调手册": ["空调", "遥控器", "自清洁", "等离子", "自动运行模式", "air conditioner", "AC", "冷气机"],
     "蒸汽清洁机手册": ["蒸汽清洁机", "蒸汽拖把", "清洁机", "steam cleaner", "蒸汽拖把机"],
@@ -79,7 +83,7 @@ MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
     "InstantPot多功能压力锅英文手册": [
         "多功能压力锅", "instant pot", "instantpot", "压力锅", "快压锅",
         "电压力锅", "pressure cooker", "智能压力锅", "多合一压力锅",
-        "float valve", "sealing ring", "quick release", "steam release",
+        # 删除 float valve 等部件词，保留品牌产品名
     ],
     "WashingMachine洗衣机英文手册": [
         "洗衣机", "washing machine", "washer", "洗衣", "滚筒洗衣机", "波轮洗衣机",
@@ -88,7 +92,7 @@ MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
     "RobotVacuum扫地机器人英文手册": [
         "扫地机器人", "robot vacuum", "扫地机", "智能扫地机", "自动扫地机",
         "vacuum robot", "roomba", "清洁机器人", "扫拖机器人",
-        "dual-mode virtual wall",
+        "dual-mode virtual wall",  # 独有功能，可保留
     ],
     "NetworkCamera网络摄像头英文手册": [
         "网络摄像头", "ip camera", "网络摄像机", "监控摄像头", "ipcam",
@@ -123,11 +127,15 @@ MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
     ],
     "WaveRunner喷气快艇英文手册": [
         "喷气快艇", "wave runner", "wave-runner", "喷射艇", "wave runner jet",
-        "personal watercraft", "喷气式水上艇",
+        "personal watercraft", "喷气式水上艇","jetski",
+          # 保留但注意与 BoatFSH 冲突
     ],
     "BoatFSH船用发动机英文手册": [
+        # 发动机相关
         "船用发动机", "舷外发动机", "boat engine", "outboard motor",
         "船外机", "船舶发动机", "船用马达",
+        # 整船型号/类别
+        "boat", "ship", "船", "快艇", "喷气艇", "210fsh", "fsh",
     ],
     "AirFryer空气炸锅英文手册": [
         "空气炸锅", "air fryer", "airfryer", "无油空气炸锅", "气炸锅",
@@ -139,7 +147,7 @@ MANUAL_ALIAS_SEEDS: Dict[str, List[str]] = {
     ],
     "Canon相机英文手册": [
         "canon", "canon相机", "佳能", "佳能相机", "canon camera",
-        "佳能数码相机",
+        "佳能数码相机", "eos", "dslr", "单反", "digital slr",
     ],
 }
 
@@ -161,7 +169,7 @@ class DualRouteRetriever:
     """双路检索编排器。"""
 
     def __init__(self):
-        self.rag_engine: Optional[RAGEngine] = None
+        self.rag_engine: Optional[RAGEngine | RAGEngineV2] = None
         self.route_examples: List[Dict[str, Any]] = []
         self.service_documents: List[Dict[str, Any]] = []
         self.intent_specs: Dict[str, Dict[str, Any]] = {}
@@ -178,7 +186,13 @@ class DualRouteRetriever:
         if self._initialized:
             return
 
-        self.rag_engine = get_rag_engine()
+        if settings.rag_engine_version == "v2":
+            self.rag_engine = get_rag_engine_v2()
+            logger.info("双路检索器接入 RAG v2")
+        else:
+            self.rag_engine = get_rag_engine()
+            logger.info("双路检索器接入 RAG v1")
+
         self.rag_engine.initialize()
         self.route_classifier = get_route_classifier()
         self.route_classifier.initialize()
