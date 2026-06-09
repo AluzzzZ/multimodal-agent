@@ -99,6 +99,7 @@ class DualRouteRetriever:
         self.route_classifier = get_route_classifier()
         self.route_classifier.initialize()
         self._load_route_kb()
+        self._load_service_bm25()
         self._initialized = True
         logger.info("双路检索器初始化完成")
 
@@ -116,6 +117,35 @@ class DualRouteRetriever:
         self.service_keywords = self._collect_service_keywords(self.intent_specs)
         self.manual_keywords = self._collect_manual_keywords()
         self._build_manual_doc_map()
+
+    def _load_service_bm25(self):
+        """将客服文档注册到 rag_engine 的 BM25 索引（无向量，不建向量索引）。"""
+        if not self.rag_engine:
+            return
+        if self.rag_engine._bm25_service_doc_tf:
+            logger.debug("客服 BM25 参数已加载，跳过")
+            return
+        if not self.service_documents:
+            return
+
+        from dataclasses import dataclass
+
+        @dataclass
+        class _Doc:
+            doc_id: str
+            content: str
+            metadata: dict = None
+
+        docs = [
+            _Doc(
+                doc_id=doc.get("doc_id", str(i)),
+                content=doc["content"],
+                metadata=doc.get("metadata", {}),
+            )
+            for i, doc in enumerate(self.service_documents)
+        ]
+        self.rag_engine.add_service_documents(docs)
+        logger.info(f"客服 BM25 参数已构建: {len(docs)} 篇文档")
 
     def _collect_service_keywords(self, intent_specs: Dict[str, Dict[str, Any]]) -> List[str]:
         """
@@ -834,7 +864,7 @@ class DualRouteRetriever:
 
         rescored.sort(key=lambda pair: pair[1], reverse=True)
         reranked = [self._clone_with_score(item, score) for item, score in rescored[:top_k]]
-        return self._apply_diversity_penalty(reranked)
+        return reranked
 
     def _rerank_manual_docs(
         self,
@@ -871,7 +901,7 @@ class DualRouteRetriever:
 
         rescored.sort(key=lambda pair: pair[1], reverse=True)
         reranked = [self._clone_with_score(item, score) for item, score in rescored[:top_k]]
-        return self._apply_diversity_penalty(reranked)
+        return reranked
 
     def _score_manual_result(
         self,
@@ -935,67 +965,6 @@ class DualRouteRetriever:
             + image_bonus
         )
 
-    # 多样性惩罚系数：Top2/Top3 命中同 section_title 时额外降权
-    _SECTION_DIVERSITY_PENALTY: float = 0.05
-    # 相邻 chunk 惩罚系数：同 section_title + 相邻 chunk_index 时降权
-    _CHUNK_DIVERSITY_PENALTY: float = 0.03
-
-    def _apply_diversity_penalty(
-        self,
-        items: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
-        """
-        对重排后的候选结果做轻量多样性惩罚，防止 top3 全是同一章节的连续块。
-
-        惩罚策略（Top2/Top3 才生效，Top1 不降权）：
-        - 同 section_title：降 _SECTION_DIVERSITY_PENALTY（0.05）
-        - 同 section_title + 相邻 chunk_index：叠加 _CHUNK_DIVERSITY_PENALTY（0.03）
-        - 同手册但不同章节：不做惩罚（保留步骤类问题的上下文连续性）
-
-        这样比 MMR-lite 更轻量，不会压掉真正最相关的连续步骤块。
-
-        Args:
-            items: 已按相关性分数降序排列的检索结果列表
-
-        Returns:
-            多样性惩罚后的结果列表（分数可能下降，顺序不变）
-        """
-        if len(items) <= 1:
-            return items
-
-        result = [dict(item) for item in items]
-
-        for i in range(1, len(result)):
-            if i > 2:  # 只对 Top2/Top3 生效
-                break
-
-            current = result[i]
-            current_meta = current.get("metadata", {})
-            current_section = str(current_meta.get("section_title", "")).strip()
-            current_chunk_idx = int(current_meta.get("chunk_index", -1))
-
-            for j in range(i):
-                prior = result[j]
-                prior_meta = prior.get("metadata", {})
-                prior_section = str(prior_meta.get("section_title", "")).strip()
-                prior_chunk_idx = int(prior_meta.get("chunk_index", -1))
-
-                if current_section != prior_section:
-                    continue
-
-                # 同 section_title 触发基础惩罚
-                penalty = self._SECTION_DIVERSITY_PENALTY
-                # 同 section + 相邻 chunk 叠加额外惩罚
-                if current_chunk_idx >= 0 and prior_chunk_idx >= 0:
-                    if abs(current_chunk_idx - prior_chunk_idx) <= 2:
-                        penalty += self._CHUNK_DIVERSITY_PENALTY
-
-                current["relevance_score"] = round(
-                    max(0.0, current["relevance_score"] - penalty), 6
-                )
-
-        return result
-
     def _clone_with_score(self, item: Dict[str, Any], score: float) -> Dict[str, Any]:
         """
         深拷贝检索结果条目并附加最终相关性分数。
@@ -1023,11 +992,11 @@ class DualRouteRetriever:
 
         检索流程:
         1. 用意图匹配确定query命中了哪些客服意图
-        2. 对每个客服文档计算多维度相关性分数
-        3. 按分数降序截取top_k个文档
+        2. 计算 BM25 语义分数 + 多维度加权
+        3. 按分数降序截取 top_k 个文档
 
         评分维度:
-        - score(0.52): 查询与文档内容的词项相似度
+        - bm25_score(0.52): BM25 词项相关性（替代原 Jaccard+Coverage）
         - title_score(0.12): 查询与文档标题的相似度
         - keyword_bonus(0.18): 文档所属意图的关键词命中加分
         - intent_bonus(+0.18): 文档意图与query命中意图一致时额外加分
@@ -1041,28 +1010,42 @@ class DualRouteRetriever:
         Returns:
             格式化后的客服检索结果列表
         """
-        scored_docs: List[Tuple[Dict[str, Any], float]] = []
-        # 匹配query命中了哪些客服意图
+        if not self.rag_engine or not self.service_documents:
+            return []
+
+        # 批量计算 BM25 分数
+        bm25_scores = self.rag_engine._compute_query_bm25_scores(
+            query,
+            self.rag_engine._bm25_service_doc_tf,
+            self.rag_engine._bm25_service_avgdl,
+            self.rag_engine._bm25_service_idf,
+        )
+
+        # 归一化 BM25 分数到 [0, 1]
+        max_bm = max(bm25_scores) if bm25_scores else 1.0
+        bm25_scores = [s / max_bm if max_bm > 0 else 0.0 for s in bm25_scores]
+
         matched_intents = self._match_service_intents(query)
-        for doc in self.service_documents:
+        scored_docs: List[Tuple[Dict[str, Any], float]] = []
+
+        for i, doc in enumerate(self.service_documents):
             metadata = doc.get("metadata", {})
-            # 若query有明确的意图筛选，则只考虑匹配意图的文档
             if matched_intents and metadata.get("intent", "") not in matched_intents:
                 continue
-            score = self._lexical_similarity(query, doc["content"])
+
+            # 归一化后的 BM25 分数替换原 Jaccard+Coverage
+            score = bm25_scores[i] if i < len(bm25_scores) else 0.0
             title_score = self._lexical_similarity(query, metadata.get("title", ""))
             keyword_bonus = self._intent_keyword_bonus(query, metadata.get("intent", ""))
-            # 命中意图时额外加分
             intent_bonus = 0.18 if metadata.get("intent", "") in matched_intents else 0.0
             doc_type = metadata.get("doc_type", "")
-            # 文档优先级权重，service_policy文档权重最高(0.82)
             priority = float(metadata.get("priority", 0.8))
             doc_type_bonus = {
-                "service_policy": 0.12,   # 客服政策文档质量最高
-                "service_playbook": 0.05,  # 客服话术手册次之
-                "question_example": 0.0,    # 题目标例不加分
+                "service_policy": 0.12,
+                "service_playbook": 0.05,
+                "question_example": 0.0,
             }.get(doc_type, 0.02)
-            # 计算加权综合分数，再乘以优先级权重
+
             final_score = (
                 score * 0.52
                 + title_score * 0.12
@@ -1073,7 +1056,6 @@ class DualRouteRetriever:
             if final_score > 0:
                 scored_docs.append((doc, final_score))
 
-        # 按分数降序排列
         scored_docs.sort(key=lambda item: item[1], reverse=True)
         results: List[Dict[str, Any]] = []
         for doc, score in scored_docs[:top_k]:

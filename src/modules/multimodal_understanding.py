@@ -195,6 +195,7 @@ class ImageParser:
         self.torch = None
         self._caption_model = None
         self._caption_processor = None
+        self._vision_api_client = None
         self._initialized = False
 
     def initialize(self):
@@ -202,32 +203,33 @@ class ImageParser:
         if self._initialized:
             return
 
+        clip_enabled = settings.enable_vision_model
+
         try:
-            if not settings.enable_vision_model:
-                logger.info("视觉模型已禁用，使用轻量模式运行")
+            if clip_enabled:
+                import torch
+                from transformers import CLIPProcessor, CLIPModel
+
+                self.torch = torch
+                logger.info(f"加载视觉模型: {settings.vision_model}")
+                self.model = CLIPModel.from_pretrained(settings.vision_model)
+                self.processor = CLIPProcessor.from_pretrained(settings.vision_model)
+
+                if settings.embedding_device == "cuda" and self.torch.cuda.is_available():
+                    self.model = self.model.to("cuda")
+
+                self.model.eval()
+                logger.info("视觉模型加载成功")
+            else:
+                logger.info("CLIP视觉模型未启用")
                 self.model = None
                 self.processor = None
-                self._initialized = True
-                return
-
-            import torch
-            from transformers import CLIPProcessor, CLIPModel
-
-            self.torch = torch
-            logger.info(f"加载视觉模型: {settings.vision_model}")
-            self.model = CLIPModel.from_pretrained(settings.vision_model)
-            self.processor = CLIPProcessor.from_pretrained(settings.vision_model)
-
-            if settings.embedding_device == "cuda" and self.torch.cuda.is_available():
-                self.model = self.model.to("cuda")
-
-            self.model.eval()
-            logger.info("视觉模型加载成功")
         except Exception as e:
             logger.error(f"视觉模型加载失败: {e}")
             self.model = None
             self.processor = None
 
+        self._load_caption_model()
         self._initialized = True
     
     def parse_image(self, image_data: str) -> Dict[str, Any]:
@@ -244,38 +246,37 @@ class ImageParser:
             self.initialize()
         
         try:
-            # 解码Base64图片
             if ',' in image_data:
                 image_data = image_data.split(',')[1]
-            
+
             image_bytes = base64.b64decode(image_data)
             image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
-            
-            # 如果没有加载模型，返回基本信息
+
             if self.model is None:
+                description = self.describe_image(image_data)
                 return {
                     "format": image.format or "unknown",
                     "size": image.size,
                     "mode": image.mode,
-                    "description": "图片已接收，视觉分析待配置"
+                    "description": description,
                 }
-            
-            # 使用CLIP提取图片特征
+
             inputs = self.processor(images=image, return_tensors="pt")
             if settings.embedding_device == "cuda" and self.torch and self.torch.cuda.is_available():
                 inputs = {k: v.to("cuda") for k, v in inputs.items()}
-            
+
             with self.torch.no_grad():
                 image_features = self.model.get_image_features(**inputs)
-            
+
+            description = self.describe_image(image_data)
             return {
                 "format": image.format or "unknown",
                 "size": image.size,
                 "mode": image.mode,
                 "features": image_features.cpu().numpy().flatten(),
-                "description": "图片特征已提取"
+                "description": description,
             }
-            
+
         except Exception as e:
             logger.error(f"图片解析失败: {e}")
             return {
@@ -283,69 +284,54 @@ class ImageParser:
                 "description": "图片解析失败"
             }
     
-        try:
-            if not settings.enable_vision_model:
-                logger.info("视觉模型已禁用，使用轻量模式运行")
-                self.model = None
-                self.processor = None
-                self._initialized = True
-                return
-
-            import torch
-            from transformers import CLIPProcessor, CLIPModel
-
-            self.torch = torch
-            logger.info(f"加载视觉模型: {settings.vision_model}")
-            self.model = CLIPModel.from_pretrained(settings.vision_model)
-            self.processor = CLIPProcessor.from_pretrained(settings.vision_model)
-
-            if settings.embedding_device == "cuda" and self.torch.cuda.is_available():
-                self.model = self.model.to("cuda")
-
-            self.model.eval()
-            logger.info("视觉模型加载成功")
-
-            # 延迟加载图片描述模型（caption 模型），避免主链路时延增加
-            self._load_caption_model()
-        except Exception as e:
-            logger.error(f"视觉模型加载失败: {e}")
-            self.model = None
-            self.processor = None
-
-        self._initialized = True
-
     def _load_caption_model(self):
         """
-        按需加载轻量 caption 模型，支持两种部署路径：
-        1. Ollama 本地 VLM（如 llava、moondream）
-        2. 托管 VLM API（通过 OpenAI 兼容接口调用）
+        按需加载 caption 能力，优先顺序：
+        1. OpenAI 兼容视觉 API（如 Qwen3-VL）
+        2. Ollama 本地 VLM（如 llava、moondream）
+        3. CLIP zero-shot 分类降级
         """
-        if not settings.enable_vision_model:
-            return
+        if settings.vision_llm_enabled and settings.vision_llm_provider == "openai":
+            try:
+                from openai import OpenAI
+
+                if settings.vision_llm_api_key and settings.vision_llm_base_url:
+                    self._vision_api_client = OpenAI(
+                        api_key=settings.vision_llm_api_key,
+                        base_url=settings.vision_llm_base_url,
+                    )
+                    self._caption_model = "vision_api"
+                    logger.info(f"图片描述使用远程视觉API: {settings.vision_llm_model}")
+                    return
+                logger.warning("VISION_LLM 已启用，但缺少 API Key 或 Base URL，降级到本地方案")
+            except Exception as e:
+                logger.warning(f"初始化远程视觉API失败: {e}，尝试其他降级方案")
 
         try:
-            # 优先尝试 Ollama 本地 VLM（llava 或 moondream）
             if settings.llm_provider == "local":
-                from ollama import chat
+                import ollama  # type: ignore
                 self._caption_model = "ollama"
                 logger.info("图片描述使用 Ollama 本地 VLM")
                 return
         except ImportError:
             pass
 
-        # 降级：使用 CLIP zero-shot classification 作为场景描述生成
-        # 通过预设的候选标签池做 top-k 标签，不依赖额外模型
-        self._caption_model = "clip_classify"
-        logger.info("图片描述使用 CLIP zero-shot 分类（标签池）")
+        if self.model is not None and self.processor is not None:
+            self._caption_model = "clip_classify"
+            logger.info("图片描述使用 CLIP zero-shot 分类（标签池）")
+        else:
+            self._caption_model = None
+            logger.info("未配置可用图片描述模型，使用降级说明")
 
     def describe_image(self, image_data: str) -> str:
         """
         生成图片描述。
 
         优先顺序：
-        1. Ollama 本地 VLM（llava/moondream）
-        2. CLIP zero-shot 分类 + 规则生成描述
-        3. 模型未配置时返回降级说明
+        1. OpenAI 兼容视觉 API（如 Qwen3-VL）
+        2. Ollama 本地 VLM（llava/moondream）
+        3. CLIP zero-shot 分类 + 规则生成描述
+        4. 模型未配置时返回降级说明
 
         Args:
             image_data: Base64编码的图片数据
@@ -366,37 +352,77 @@ class ImageParser:
             if self.model is None and self._caption_model is None:
                 return "图片已接收，视觉分析待配置"
 
-            # 策略1: Ollama 本地 VLM
+            if self._caption_model == "vision_api":
+                return self._caption_via_vision_api(image_data)
+
+            # 策略2: Ollama 本地 VLM
             if self._caption_model == "ollama":
                 return self._caption_via_ollama(image)
 
-            # 策略2: CLIP zero-shot 分类 + 规则生成
+            # 策略3: CLIP zero-shot 分类 + 规则生成
             return self._caption_via_clip_classify(image)
 
         except Exception as e:
             logger.error(f"图片描述生成失败: {e}")
             return "图片描述生成失败"
 
+    def _caption_via_vision_api(self, image_data: str) -> str:
+        """通过 OpenAI 兼容视觉 API 生成图片描述"""
+        if self._vision_api_client is None:
+            return "图片已接收，视觉分析待配置"
+
+        data_url = image_data if image_data.startswith("data:") else f"data:image/jpeg;base64,{image_data}"
+
+        try:
+            response = self._vision_api_client.chat.completions.create(
+                model=settings.vision_llm_model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "请用一句话描述这张图片的内容，包括产品类型、外观特征、关键部件或状态。回答控制在30个字以内，尽量使用名词短语。",
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": data_url},
+                            },
+                        ],
+                    }
+                ],
+                temperature=0.2,
+                max_tokens=120,
+            )
+            caption = (response.choices[0].message.content or "").strip()
+            return caption or "图片内容分析完成"
+        except Exception as e:
+            logger.warning(f"远程视觉API描述失败: {e}")
+            if self.model is not None and self.processor is not None:
+                fallback_image = Image.open(io.BytesIO(base64.b64decode(image_data))).convert('RGB')
+                return self._caption_via_clip_classify(fallback_image)
+            return "图片内容分析完成"
+
     def _caption_via_ollama(self, image: Image.Image) -> str:
         """通过 Ollama 本地 VLM 生成图片描述"""
         try:
-            from ollama import chat
-            from ollama import Message
+            import ollama  # type: ignore
 
-            response = chat(
+            response = ollama.chat(
                 model="llava",
                 messages=[
-                    Message(
-                        role="user",
-                        content="请用一句话描述这张图片的内容，包括产品类型、外观特征、可能的用途。回答控制在20个字以内。",
-                        images=[image],
-                    )
+                    {
+                        "role": "user",
+                        "content": "请用一句话描述这张图片的内容，包括产品类型、外观特征、可能的用途。回答控制在20个字以内。",
+                        "images": [image],
+                    }
                 ],
                 options={"temperature": 0.3, "num_predict": 50},
             )
-            caption = response.message.content.strip()
+            message = response.get("message", {}) if isinstance(response, dict) else getattr(response, "message", None)
+            caption = (message.get("content", "") if isinstance(message, dict) else getattr(message, "content", "")).strip()
             logger.debug(f"Ollama caption: {caption}")
-            return caption
+            return caption or "图片内容分析完成"
         except Exception as e:
             logger.warning(f"Ollama caption 失败: {e}，降级 CLIP 分类")
             return self._caption_via_clip_classify(image)
@@ -634,9 +660,7 @@ class MultimodalUnderstanding:
         all_tags = []
         for img in images[:3]:  # 最多处理 3 张
             try:
-                parsed = self.image_parser.parse_image(img)
-                # 尝试从描述中抽取标签词
-                desc = parsed.get("description", "")
+                desc = self.image_parser.describe_image(img)
                 tags = self._parse_tags_from_description(desc)
                 all_tags.extend(tags)
             except Exception as e:

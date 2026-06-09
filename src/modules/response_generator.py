@@ -11,7 +11,6 @@ from typing import List, Dict, Any, Optional, Tuple
 from loguru import logger
 
 from config import settings
-from .rag_engine import RAGEngine, get_rag_engine
 from .dual_route_retriever import DualRouteRetriever, get_dual_route_retriever
 from .hallucination_controller import (
     HallucinationController,
@@ -34,14 +33,10 @@ class ResponseGenerator:
     """
 
     def __init__(self):
-        # LLM客户端 - 用于生成回答
+        # LLM客户端
         self.llm_client = None
-        # RAG引擎 - 用于知识检索
-        self.rag_engine: Optional[RAGEngine] = None
         self.dual_route_retriever: Optional[DualRouteRetriever] = None
-        # 幻觉控制器 - 用于答案验证
         self.hallucination_controller: Optional[HallucinationController] = None
-        # 思维链推理器 - 用于问题拆解
         self.cot_reasoner: Optional[ChainOfThoughtReasoner] = None
         self._initialized = False
 
@@ -49,11 +44,11 @@ class ResponseGenerator:
         """
         初始化所有组件
 
-        按照以下顺序初始化:
-        1. LLM客户端 (根据配置选择OpenAI或本地模型)
-        2. RAG引擎 (知识检索)
-        3. 幻觉控制器 (答案验证)
-        4. 思维链推理器 (问题拆解)
+        初始化顺序:
+        1. LLM客户端 (OpenAI 或本地 Ollama)
+        2. 双重路由检索器
+        3. 幻觉控制器
+        4. 思维链推理器
         """
         if self._initialized:
             return
@@ -87,9 +82,6 @@ class ResponseGenerator:
             self.llm_client = None
 
         # Step 2: 初始化其他组件
-        self.rag_engine = get_rag_engine()
-        self.rag_engine.initialize()
-
         self.dual_route_retriever = get_dual_route_retriever()
         self.dual_route_retriever.initialize()
 
@@ -149,23 +141,13 @@ class ResponseGenerator:
             "routes": []
         }
 
-        # ========== Step 1: 问题分解 (思维链) ==========
+        # ========== Step 1: 问题分解 (LLM) ==========
         # 复杂问题拆分为多个简单子问题，保证每个子问题都能被完整回答
         # 例如: "能送到乡镇吗？需要加运费吗？多久到？" -> 拆分为3个子问题
-        sub_questions = self._split_simple_questions(query)
-        if settings.enable_cot_reasoning and self._needs_deep_reasoning(query, sub_questions):
-            decomposition = self.cot_reasoner.decompose_question(query)
-            result["reasoning"] = decomposition
-            if decomposition.get("is_complex"):
-                sub_questions = decomposition.get("sub_questions", sub_questions or [query])
-        else:
-            result["reasoning"] = {
-                "original_question": query,
-                "sub_questions": sub_questions,
-                "reasoning_steps": [],
-                "is_complex": len(sub_questions) > 1,
-                "mode": "fast_split"
-            }
+        # 短文本(≤30字)走 fast-path 不调 LLM，其余统一调用 LLM 分解
+        decomposition = self.cot_reasoner.decompose_question(query)
+        result["reasoning"] = decomposition
+        sub_questions = decomposition.get("sub_questions", [query])
 
         # ========== Step 2: RAG检索 ==========
         # 对每个子问题独立检索，收集所有相关来源
@@ -217,7 +199,6 @@ class ResponseGenerator:
             sub_questions,
             context_text,
             all_sources=all_sources,
-            route_records=result["routes"],
             route_packets=route_packets,
         )
 
@@ -231,11 +212,12 @@ class ResponseGenerator:
             )
 
             if not verification.get("is_consistent", True):
-                # 一致性验证失败，尝试修正答案
+                # 一致性验证失败，将审核发现一并传入以针对性修正
                 refined_answer = self.hallucination_controller.refine_answer(
                     final_answer,
                     [s["content"] for s in all_sources],
-                    sub_questions
+                    sub_questions,
+                    verification,
                 )
                 final_answer = refined_answer
 
@@ -251,89 +233,6 @@ class ResponseGenerator:
         result["response"] = final_answer
 
         return result
-
-    def _split_simple_questions(self, query: str) -> List[str]:
-        """
-        简单问题拆分 - 备用方案(禁用CoT时使用)
-
-        拆分策略:
-        1. 按标点符号(？;；\n)分割文本
-        2. 使用正则模式检测是否包含多个问题
-        3. 返回拆分后的子问题列表
-
-        Args:
-            query: 用户问题
-
-        Returns:
-            子问题列表
-        """
-        # Step 1: 按标点拆分
-        questions = re.split(r'[?？;；\n]', query)
-        questions = [q.strip() for q in questions if q.strip()]
-        questions = self._merge_followup_constraints(questions)
-
-        # Step 2: 检测多问题模式
-        # 常见的问题标记: "有...吗", "怎么...", "如何...", "可以...吗"
-        multi_patterns = [
-            r'有.*吗', r'怎么.*', r'如何.*',
-            r'可以.*吗', r'请问.*', r'.*吗.*'
-        ]
-        has_multiple = sum(1 for p in multi_patterns if re.search(p, query)) > 1
-
-        # Step 3: 判断是否需要拆分
-        if len(questions) > 1 or has_multiple:
-            return questions if questions else [query]
-
-        return [query]
-
-    def _merge_followup_constraints(self, questions: List[str]) -> List[str]:
-        """
-        将约束句合并到前一个主问题。
-
-        例如: ["请问如何安装？", "只需告诉我前五条"] -> ["请问如何安装？，只需告诉我前五条"]
-
-        合并规则:
-        - 句子较短(<=18字符)或包含约束提示词时视为约束句
-        - 问句(?结尾)和以疑问词开头的不合并
-        """
-        if len(questions) <= 1:
-            return questions
-
-        constraint_cues = (
-            "只需", "只要", "告诉我", "列出", "写出", "前", "后", "即可", "分别", "依次", "简要"
-        )
-        question_openers = ("请问", "如何", "怎么", "什么", "哪些", "哪几", "是否", "能否", "可否", "要不要")
-
-        merged: List[str] = []
-        for question in questions:
-            if (
-                merged
-                and (len(question) <= 18 or any(cue in question for cue in constraint_cues))
-                and not question.endswith("吗")
-                and not question.startswith(question_openers)
-            ):
-                merged[-1] = merged[-1].rstrip("，,。；; ") + "，" + question
-            else:
-                merged.append(question)
-        return merged
-
-    def _needs_deep_reasoning(self, query: str, sub_questions: List[str]) -> bool:
-        """
-        控制是否启用慢速深度拆解。
-
-        快速规则拆分足以应对大多数场景，仅在明显复杂时才调用额外LLM，
-        以控制客服接口时延。阈值设置基于公开题分析:
-        - 子问题数>=3 明确是复合问题
-        - 文本较长(>=120字符)且子问题>=2 说明是长复合问
-        - 换行>=2 次表示多行复杂输入
-        """
-        if len(sub_questions) >= 3:
-            return True
-        if len(query) >= 120 and len(sub_questions) >= 2:
-            return True
-        if query.count("\n") >= 2:
-            return True
-        return False
 
     def _build_context(
         self,
@@ -392,25 +291,6 @@ class ResponseGenerator:
                         content = self._clean_context_content(source["content"])
                         if content.strip():
                             context_parts.append(f"手册参考{source_idx}: [{manual_name}] {content.strip()}")
-        elif sources:
-            service_sources = [s for s in sources if s.get("metadata", {}).get("route") == "service"]
-            manual_sources = [s for s in sources if s.get("metadata", {}).get("route") != "service"]
-
-            if service_sources:
-                context_parts.append("【客服政策参考】")
-                for i, source in enumerate(service_sources[:3], 1):
-                    title = source.get("metadata", {}).get("title", f"客服资料{i}")
-                    content = self._clean_context_content(source["content"])
-                    if content.strip():
-                        context_parts.append(f"{i}. [{title}] {content.strip()}")
-
-            if manual_sources:
-                context_parts.append("【产品手册参考】")
-                for i, source in enumerate(manual_sources[:3], 1):
-                    manual_name = source.get("metadata", {}).get("manual_name", source.get("metadata", {}).get("title", f"手册资料{i}"))
-                    content = self._clean_context_content(source["content"])
-                    if content.strip():
-                        context_parts.append(f"{i}. [{manual_name}] {content.strip()}")
 
         # 2. 添加对话历史
         if history:
@@ -451,7 +331,6 @@ class ResponseGenerator:
         sub_questions: List[str],
         context: str,
         all_sources: Optional[List[Dict[str, Any]]] = None,
-        route_records: Optional[List[Dict[str, Any]]] = None,
         route_packets: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """
@@ -495,7 +374,6 @@ class ResponseGenerator:
                 query,
                 sub_questions,
                 all_sources or [],
-                route_records or [],
                 route_packets or [],
             )
 
@@ -509,7 +387,6 @@ class ResponseGenerator:
                 query,
                 sub_questions,
                 all_sources or [],
-                route_records or [],
                 route_packets or [],
             )
 
@@ -518,29 +395,13 @@ class ResponseGenerator:
         query: str,
         sub_questions: List[str],
         sources: List[Dict[str, Any]],
-        route_records: List[Dict[str, Any]],
         route_packets: List[Dict[str, Any]],
     ) -> str:
         """无 LLM 或外部调用失败时的检索驱动兜底回答。"""
         if not sources:
             return "抱歉，我暂时没有检索到足够的参考信息。请补充订单号、商品型号或问题图片，我再继续帮您核实。"
 
-        if route_packets:
-            return self._compose_route_aware_answer(sub_questions, route_packets)
-
-        route_sequence = [item.get("route", "manual") for item in route_records]
-        primary_route = route_sequence[0] if route_sequence else "manual"
-        service_sources = [s for s in sources if s.get("metadata", {}).get("route") == "service"]
-        manual_sources = [s for s in sources if s.get("metadata", {}).get("route") != "service"]
-
-        if primary_route == "service" and service_sources:
-            return self._compose_service_answer(sub_questions, service_sources)
-        if primary_route == "mixed":
-            service_answer = self._compose_service_answer(sub_questions, service_sources) if service_sources else ""
-            manual_answer = self._compose_manual_answer(sub_questions, manual_sources) if manual_sources else ""
-            mixed_parts = [part for part in [service_answer, manual_answer] if part]
-            return "\n\n".join(mixed_parts) if mixed_parts else self._compose_manual_answer(sub_questions, manual_sources)
-        return self._compose_manual_answer(sub_questions, manual_sources or sources)
+        return self._compose_route_aware_answer(sub_questions, route_packets)
 
     def _compose_route_aware_answer(self, sub_questions: List[str], route_packets: List[Dict[str, Any]]) -> str:
         lines: List[str] = []

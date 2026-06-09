@@ -72,7 +72,7 @@ class KnowledgeBase:
         self.embedding_model = None
         self.embedding_backend: Optional[str] = None
         self._initialized = False
-        # 混合检索：BM25 参数预计算
+        # 预计算 BM25 参数（用于混合检索）
         # _bm25_doc_tf: 每个文档的 {token: tf} 列表（与 documents 索引对应）
         # _bm25_avgdl: 平均文档长度（字符数）
         # _bm25_n_docs: 总文档数
@@ -85,6 +85,11 @@ class KnowledgeBase:
         self._bm25_image_avgdl: float = 0.0
         self._bm25_image_n_docs: int = 0
         self._bm25_image_idf: Dict[str, float] = {}
+        # service 路 BM25 参数（客服文档独立索引）
+        self._bm25_service_doc_tf: List[Dict[str, int]] = []
+        self._bm25_service_avgdl: float = 0.0
+        self._bm25_service_n_docs: int = 0
+        self._bm25_service_idf: Dict[str, float] = {}
         # 向后兼容旧格式（构建索引时自动迁移时清除）
         self._text_sparse_weights: List[Dict[str, float]] = []
         self._image_sparse_weights: List[Dict[str, float]] = []
@@ -238,9 +243,14 @@ class KnowledgeBase:
                         self._bm25_image_avgdl = metadata.get("bm25_image_avgdl", 0.0)
                         self._bm25_image_n_docs = metadata.get("bm25_image_n_docs", 0)
                         self._bm25_image_idf = metadata.get("bm25_image_idf", {})
+                        self._bm25_service_doc_tf = metadata.get("bm25_service_doc_tf", [])
+                        self._bm25_service_avgdl = metadata.get("bm25_service_avgdl", 0.0)
+                        self._bm25_service_n_docs = metadata.get("bm25_service_n_docs", 0)
+                        self._bm25_service_idf = metadata.get("bm25_service_idf", {})
                         logger.info(
                             f"加载 BM25 参数: {len(self._bm25_text_doc_tf)} 文本, "
-                            f"{len(self._bm25_image_doc_tf)} 图片"
+                            f"{len(self._bm25_image_doc_tf)} 图片, "
+                            f"{len(self._bm25_service_doc_tf)} 客服"
                         )
                     # 向后兼容旧格式 sparse_weights（构建新索引后自动迁移）
                     if not self._bm25_text_doc_tf:
@@ -461,6 +471,38 @@ class KnowledgeBase:
 
         logger.debug(f"添加 {len(documents)} 个图片文档到知识库")
 
+    def add_service_documents(self, documents: List[Document]):
+        """
+        添加客服文档（仅用于 BM25 评分，不建向量索引）。
+
+        Args:
+            documents: 客服文档列表
+        """
+        if not documents:
+            return
+
+        texts = [doc.content for doc in documents]
+        doc_tf, avgdl, n_docs, idf = self._compute_bm25_params(texts)
+
+        if self._bm25_service_n_docs > 0:
+            old_n = self._bm25_service_n_docs
+            self._bm25_service_idf = {
+                t: (
+                    self._bm25_service_idf.get(t, 0.0) * old_n
+                    + idf.get(t, 0.0) * n_docs
+                ) / (old_n + n_docs)
+                for t in set(self._bm25_service_idf) | set(idf)
+            }
+            total_docs = old_n + n_docs
+            self._bm25_service_avgdl = (self._bm25_service_avgdl * old_n + avgdl * n_docs) / total_docs
+        else:
+            self._bm25_service_idf = idf
+            self._bm25_service_avgdl = avgdl
+        self._bm25_service_n_docs += n_docs
+        self._bm25_service_doc_tf.extend(doc_tf)
+
+        logger.debug(f"添加 {len(documents)} 个客服文档到 BM25 索引 (总计: {self._bm25_service_n_docs})")
+
     def add_documents_incremental(
         self,
         documents: List[Document],
@@ -530,6 +572,10 @@ class KnowledgeBase:
             metadata["bm25_image_avgdl"] = self._bm25_image_avgdl
             metadata["bm25_image_n_docs"] = self._bm25_image_n_docs
             metadata["bm25_image_idf"] = self._bm25_image_idf
+            metadata["bm25_service_doc_tf"] = self._bm25_service_doc_tf
+            metadata["bm25_service_avgdl"] = self._bm25_service_avgdl
+            metadata["bm25_service_n_docs"] = self._bm25_service_n_docs
+            metadata["bm25_service_idf"] = self._bm25_service_idf
         with open(metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
@@ -591,6 +637,51 @@ class KnowledgeBase:
 
         return results[:top_k]
 
+    def _normalize_sparse_scores(self, raw_scores: List[float]) -> List[float]:
+        """将 BM25 原始分数归一化到 [0, 1]。"""
+        if not raw_scores:
+            return []
+
+        max_bm = max(raw_scores)
+        if max_bm <= 0:
+            return [0.0] * len(raw_scores)
+
+        return [score / max_bm for score in raw_scores]
+
+    def _search_sparse_candidates(
+        self,
+        query: str,
+        documents: List[Document],
+        top_k: int,
+        doc_tf: Optional[List[Dict[str, int]]] = None,
+        avgdl: float = 0.0,
+        idf: Optional[Dict[str, float]] = None,
+    ) -> Tuple[List[int], Dict[int, float]]:
+        """
+        使用 BM25 分数独立召回 sparse 候选。
+
+        Returns:
+            (候选文档索引列表, 归一化后的 idx->bm25_score 映射)
+        """
+        if not settings.enable_hybrid_retrieval or not documents or not doc_tf or not idf or avgdl <= 0:
+            return [], {}
+
+        raw_scores = self._compute_query_bm25_scores(query, doc_tf, avgdl, idf)
+        normalized_scores = self._normalize_sparse_scores(raw_scores)
+
+        ranked_pairs = [
+            (idx, score)
+            for idx, score in enumerate(normalized_scores)
+            if idx < len(documents) and score > 0
+        ]
+        ranked_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        sparse_top_k = min(top_k, len(ranked_pairs))
+        top_pairs = ranked_pairs[:sparse_top_k]
+        sparse_indices = [idx for idx, _ in top_pairs]
+        sparse_score_map = {idx: score for idx, score in top_pairs}
+        return sparse_indices, sparse_score_map
+
     def _search_index(
         self,
         query: str,
@@ -602,64 +693,65 @@ class KnowledgeBase:
         idf: Optional[Dict[str, float]] = None,
     ) -> List[Tuple[Document, float]]:
         """
-        在单个 FAISS 索引中检索，支持 dense+BM25 混合模式。
+        在单个索引中检索，支持 dense 候选 + sparse 独立候选的混合模式。
 
         检索流程:
-        1. 将查询文本编码为向量并归一化（dense）
-        2. 在 FAISS 索引中搜索 top_k*2 个候选
-        3. 若启用混合检索，用 BM25 公式计算 sparse 分数并加权融合
-        4. 过滤低于分数阈值的文档
+        1. dense: 将查询文本编码为向量并从 FAISS 中取候选
+        2. sparse: 用 BM25 独立召回一批候选
+        3. 合并两路候选并对 dense/sparse 分数做线性融合
+        4. 过滤低于阈值的文档
         5. 返回 (文档, 分数) 元组列表
-
-        Args:
-            query: 查询文本
-            index: FAISS 索引对象
-            documents: 与索引对应的文档列表
-            top_k: 请求的返回数量
-            doc_tf: 预计算的文档 token->TF 字典列表
-            avgdl: 预计算的平均文档长度
-            idf: 预计算的 token->IDF 字典
-
-        Returns:
-            符合条件的 (文档, 分数) 列表
         """
         if index.ntotal == 0:
             return []
 
-        search_k = min(settings.rag_rerank_candidate_k, index.ntotal)
+        dense_search_k = min(settings.rag_rerank_candidate_k, index.ntotal)
 
         # --- Dense 检索 ---
         query_embedding = self.embedding_model.encode([query])
         faiss.normalize_L2(query_embedding)
         scores_np, indices_np = index.search(
             query_embedding.astype('float32'),
-            search_k
+            dense_search_k
         )
-        scores_list = scores_np[0].tolist()
-        indices_list = indices_np[0].tolist()
+        dense_indices = indices_np[0].tolist()
+        dense_scores = scores_np[0].tolist()
+        dense_score_map = {
+            idx: float(score)
+            for idx, score in zip(dense_indices, dense_scores)
+            if 0 <= idx < len(documents)
+        }
 
-        # --- BM25 Sparse 分数 ---
-        raw_bm25_scores: List[float] = [0.0] * len(indices_list)
-        if settings.enable_hybrid_retrieval and doc_tf and idf and avgdl > 0:
-            raw_bm25_scores = self._compute_query_bm25_scores(
-                query, doc_tf, avgdl, idf
-            )
-            # BM25 分数范围可能很大，先归一化到 [0, 1]
-            max_bm = max(raw_bm25_scores) if raw_bm25_scores else 1.0
-            if max_bm > 0:
-                raw_bm25_scores = [s / max_bm for s in raw_bm25_scores]
+        # --- BM25 Sparse 独立召回 ---
+        sparse_candidate_k = min(settings.hybrid_sparse_candidate_k, len(documents))
+        sparse_indices, sparse_score_map = self._search_sparse_candidates(
+            query,
+            documents,
+            sparse_candidate_k,
+            doc_tf=doc_tf,
+            avgdl=avgdl,
+            idf=idf,
+        )
+
+        # --- 候选集合并 ---
+        candidate_indices: List[int] = []
+        seen_indices = set()
+        for idx in dense_indices + sparse_indices:
+            if 0 <= idx < len(documents) and idx not in seen_indices:
+                seen_indices.add(idx)
+                candidate_indices.append(idx)
 
         # --- 分数融合 ---
         results = []
         alpha = 1.0 - settings.hybrid_sparse_weight  # dense 权重
         beta = settings.hybrid_sparse_weight          # sparse 权重
 
-        for i, idx in enumerate(indices_list):
-            dense_score = float(scores_list[i])
-            bm25_score = raw_bm25_scores[idx] if (doc_tf and 0 <= idx < len(raw_bm25_scores)) else 0.0
+        for idx in candidate_indices:
+            dense_score = dense_score_map.get(idx, 0.0)
+            bm25_score = sparse_score_map.get(idx, 0.0)
             final_score = alpha * dense_score + beta * bm25_score
 
-            if idx >= 0 and idx < len(documents) and final_score >= settings.rag_score_threshold:
+            if final_score >= settings.rag_score_threshold:
                 results.append((documents[idx], final_score))
 
         return results
@@ -707,6 +799,10 @@ class KnowledgeBase:
         self._bm25_image_avgdl = 0.0
         self._bm25_image_n_docs = 0
         self._bm25_image_idf = {}
+        self._bm25_service_doc_tf = []
+        self._bm25_service_avgdl = 0.0
+        self._bm25_service_n_docs = 0
+        self._bm25_service_idf = {}
         # 向后兼容旧格式
         self._text_sparse_weights = []
         self._image_sparse_weights = []

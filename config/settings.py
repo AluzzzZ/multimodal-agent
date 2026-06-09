@@ -43,6 +43,11 @@ class Settings(BaseSettings):
     enable_vision_model: bool = False
     vision_model: str = "openai/clip-vit-large-patch14"
     vision_processor: str = "openai/clip-vit-large-patch14"
+    vision_llm_enabled: bool = False
+    vision_llm_provider: str = "openai"  # openai, local
+    vision_llm_model: str = "qwen3-vl-235b-a22b-thinking"
+    vision_llm_api_key: Optional[str] = None
+    vision_llm_base_url: Optional[str] = None
     
     chunk_size: int = 500
     chunk_overlap: int = 50
@@ -100,6 +105,7 @@ class Settings(BaseSettings):
     # 混合检索配置
     enable_hybrid_retrieval: bool = True  # 启用 dense+sparse 混合检索
     hybrid_sparse_weight: float = 0.3  # sparse 分数权重，dense_weight = 1 - sparse_weight
+    hybrid_sparse_candidate_k: int = 8  # sparse 独立召回候选数，用于与 dense 候选合并
     # BM25 参数（用于混合检索的稀疏打分）
     bm25_k1: float = 1.5  # 词频饱和参数，控制 tf 增长速率
     bm25_b: float = 0.75  # 文档长度归一化参数
@@ -110,6 +116,10 @@ class Settings(BaseSettings):
     # 会话配置
     max_conversation_history: int = 10
     session_timeout: int = 3600  # 秒
+    # 会话持久化配置
+    session_storage_backend: str = "sqlite"  # sqlite, json_file
+    session_storage_path: Path = PROJECT_ROOT / "data" / "sessions"  # 存储根目录
+    session_json_indent: int = 2  # JSON 文件缩进（仅 json_file 后端有效）
     
     # 幻觉抑制配置
     hallucination_detection_enabled: bool = True
