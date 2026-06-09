@@ -65,6 +65,21 @@ def run_knowledge_builder():
     logger.info("知识库构建完成!")
 
 
+def run_knowledge_builder_v2():
+    """运行知识库构建工具 v2"""
+    from scripts.build_knowledge_base_v2 import KnowledgeBaseBuilderV2
+
+    logger.info("开始构建知识库 V2...")
+    logger.info(
+        "V2 使用摘要检索副本：按 # 分块、生成摘要、写入独立索引 index_v2"
+    )
+
+    builder = KnowledgeBaseBuilderV2()
+    builder.build(force_rebuild=True)
+
+    logger.info("知识库 V2 构建完成!")
+
+
 def run_interactive_mode():
     """运行交互式测试模式"""
     from src.modules import get_multimodal_understanding, get_rag_engine, get_response_generator
@@ -114,11 +129,8 @@ def run_interactive_mode():
             
             print(f"\n助手: {result['response']}")
             
-            if result.get('images'):
-                print(f"[相关图片: {', '.join(result['images'])}]")
-            
-            if result.get('reasoning', {}).get('is_complex'):
-                print(f"[思维链: 已分析 {len(result['reasoning']['sub_questions'])} 个子问题]")
+            # if result.get('reasoning', {}).get('is_complex'):
+            #     print(f"[思维链: 已分析 {len(result['reasoning']['sub_questions'])} 个子问题]")
             
             # 更新历史
             conversation_history.append({"role": "user", "content": user_input})
