@@ -39,12 +39,23 @@ class Settings(BaseSettings):
     dashscope_api_key: Optional[str] = None  # 从 DASHSCOPE_API_KEY 环境变量读取
     dashscope_base_url: Optional[str] = None  # 从 DASHSCOPE_BASE_URL 环境变量读取
 
+    # 摘要生成配置（v2 试验版）
+    summary_backend: str = "dashscope"  # 当前优先走百炼免费额度模型
+    summary_model: str = "qwen-turbo"  # 可按控制台可用模型调整
+    summary_api_key: Optional[str] = None
+    summary_base_url: Optional[str] = None
+    summary_max_tokens: int = 256
+    summary_temperature: float = 0.2
+    summary_chunk_size_threshold: int = 800
+    summary_max_chunk_chars: int = 1400
+    summary_min_chunk_chars: int = 100
+
     # 多模态模型配置
     enable_vision_model: bool = False
     vision_model: str = "openai/clip-vit-large-patch14"
     vision_processor: str = "openai/clip-vit-large-patch14"
     
-    chunk_size: int = 500
+    chunk_size: int = 400
     chunk_overlap: int = 50
 
     # RAG配置（优化后）
@@ -54,10 +65,11 @@ class Settings(BaseSettings):
     rag_enable_reranker: bool = True  # 启用重排序模型
     reranker_backend: str = "dashscope"  # cross_encoder, dashscope
     reranker_model: str = "qwen3-vl-rerank"  # dashscope后端使用模型名称
-
+    
     # 知识库配置
+    rag_engine_version: str = "v1"  # v1, v2
     knowledge_base_path: Path = PROJECT_ROOT / "knowledge_base"
-    index_path: Path = PROJECT_ROOT / "knowledge_base" / "index"
+    index_path: Path = PROJECT_ROOT / "knowledge_base" / "index_v1"
     text_index_file: str = "text_index.faiss"
     image_index_file: str = "image_index.faiss"
     metadata_file: str = "metadata.json"
@@ -67,10 +79,10 @@ class Settings(BaseSettings):
     service_policy_seed_file: str = "service_policy_seed.json"
     route_classifier_data_path: Path = PROJECT_ROOT / "knowledge_base" / "route_classifier"
     route_classifier_model_dir: Path = PROJECT_ROOT / "knowledge_base" / "route_classifier" / "model"
-
+    
     # 双路检索配置
     route_service_top_k: int = 4
-    route_manual_top_k: int = 5
+    route_manual_top_k: int = 10
     route_service_keyword_weight: float = 0.35
     route_example_similarity_weight: float = 0.65
     route_service_threshold: float = 0.30  # 降低阈值，让更多问题走 Service 路
@@ -90,7 +102,7 @@ class Settings(BaseSettings):
     route_manual_local_recall_enabled: bool = True  # 启用局部召回：在候选手册内做向量检索
     route_manual_local_recall_min_score: float = 0.18  # 局部召回最低触发分数
     route_manual_local_recall_strong_score: float = 0.72  # 强触发分数（alias得分 >= 此值时跳过 broad 检索）
-    route_manual_local_recall_min_gap: float = 0.30  # 触发 gap（alias 最高分与次高分的最小差值）
+    route_manual_local_recall_min_gap: float = 0.30  # 触发 gap（alias 最高分与次高分的最小差值)
     route_manual_local_recall_max_manuals: int = 3  # 最多参与局部召回的手册数
 
     # 路由分类器置信度边距（用于宽松/严格模式）
@@ -140,7 +152,8 @@ class Settings(BaseSettings):
 
 # 全局配置实例
 settings = Settings()
-
+# 在 Settings 中添加
+enable_query_translation: bool = False   # 默认关闭，不翻译英文查询
 
 def get_settings() -> Settings:
     """获取配置实例"""
