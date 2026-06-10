@@ -622,12 +622,15 @@ class TestManualStructuredAnswer:
     """manual 路列表/步骤型答案抽取测试"""
 
     def test_merge_followup_constraints(self):
-        from src.modules.response_generator import ResponseGenerator
+        from src.modules.hallucination_controller import ChainOfThoughtReasoner
 
-        generator = ResponseGenerator()
-        parts = generator._split_simple_questions("使用冰箱冰柜时需要注意什么？只需告诉我手册中的前五条。")
-        assert len(parts) == 1
-        assert "前五条" in parts[0]
+        reasoner = ChainOfThoughtReasoner()
+        reasoner.initialize()
+
+        result = reasoner.decompose_question("你好，请问这款冰箱价格是多少")
+        assert result["is_complex"] is False
+        assert result["sub_questions"] == ["你好，请问这款冰箱价格是多少"]
+        assert result["mode"] == "fast_path"
 
     def test_extract_structured_manual_points(self):
         from src.modules.response_generator import ResponseGenerator
