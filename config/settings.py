@@ -29,15 +29,18 @@ class Settings(BaseSettings):
     llm_base_url: Optional[str] = None
     
     # Embedding配置
-    embedding_backend: str = "dashscope"  # hashing, sentence_transformer, transformers, dashscope
-    embedding_model: str = "text-embedding-v3"  # dashscope后端使用模型名称
-    embedding_device: str = "cpu"  # cpu, cuda（dashscope为API调用，此参数仅作兼容）
-    embedding_batch_size: int = 10  # 百炼 API 批量上限为 10 条/请求
-    embedding_dim: int = 1024  # text-embedding-v3 输出 1024 维
-    max_seq_length: int = 2048  # 百炼 API 最大输入 token 数
-    # dashscope API 配置（embedding 和 reranker 统一从这里读取）
-    dashscope_api_key: Optional[str] = None  # 从 DASHSCOPE_API_KEY 环境变量读取
-    dashscope_base_url: Optional[str] = None  # 从 DASHSCOPE_BASE_URL 环境变量读取
+    embedding_backend: str = "transformers"  # transformers, sentence_transformer, hashing, api
+    embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"  # transformers后端推荐使用此模型
+    embedding_device: str = "cpu"  # cpu, cuda
+    embedding_batch_size: int = 8
+    embedding_dim: int = 384  # MiniLM为384维; BGE-M3为1024维; m3e-base为768维
+    max_seq_length: int = 256  # transformers模型的最大序列长度
+
+    # API后端配置（embedding_backend=api 时使用）
+    embedding_api_provider: str = "siliconflow"  # siliconflow
+    embedding_api_base_url: str = "https://api.siliconflow.cn/v1"
+    embedding_api_key: Optional[str] = None  # 可在 .env 中设置 SILICONFLOW_API_KEY
+    embedding_api_model: str = "BAAI/bge-m3"  # SiliconFlow 上的 embedding 模型
 
     # 摘要生成配置（v2 试验版）
     summary_backend: str = "dashscope"  # 当前优先走百炼免费额度模型
@@ -62,10 +65,12 @@ class Settings(BaseSettings):
     rag_top_k: int = 8  # 提高 top_k，增加候选给 reranker
     rag_score_threshold: float = 0.35  # 降低阈值，增加召回
     rag_rerank_candidate_k: int = 12  # rerank 候选上限，减少不必要的重排计算
-    rag_enable_reranker: bool = True  # 启用重排序模型
-    reranker_backend: str = "dashscope"  # cross_encoder, dashscope
-    reranker_model: str = "qwen3-vl-rerank"  # dashscope后端使用模型名称
-    
+    rag_enable_reranker: bool = True  # 启用BGE-M3配套的多语言重排序模型
+    reranker_model: str = "BAAI/bge-reranker-v2-m3"  # 本地交叉编码器，支持中文重排序
+    # API reranker 配置（reranker_backend=api 时使用）
+    reranker_backend: str = "local"  # local, api
+    reranker_api_model: str = "BAAI/bge-reranker-v2-m3"  # SiliconFlow 上的 reranker 模型
+
     # 知识库配置
     rag_engine_version: str = "v1"  # v1, v2
     knowledge_base_path: Path = PROJECT_ROOT / "knowledge_base"
