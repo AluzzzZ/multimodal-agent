@@ -27,7 +27,6 @@ _EXPORTS = {
     "ConversationManager": ("src.modules.conversation_manager", "ConversationManager"),
     "ConversationContext": ("src.modules.conversation_manager", "ConversationContext"),
     "Message": ("src.modules.conversation_manager", "Message"),
-    "DialogueState": ("src.modules.conversation_manager", "DialogueState"),
     "get_conversation_manager": ("src.modules.conversation_manager", "get_conversation_manager"),
     "HallucinationController": ("src.modules.hallucination_controller", "HallucinationController"),
     "ChainOfThoughtReasoner": ("src.modules.hallucination_controller", "ChainOfThoughtReasoner"),

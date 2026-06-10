@@ -191,28 +191,41 @@ class HallucinationController:
         self,
         answer: str,
         context: List[str],
-        questions: Optional[List[str]] = None
+        questions: Optional[List[str]] = None,
+        verification: Optional[Dict[str, Any]] = None
     ) -> str:
         """
-        改进回答质量，减少幻觉
-        
+        改进回答质量，减少幻觉。
+
         Args:
             answer: 原始回答
             context: 上下文
             questions: 原始问题列表
-            
-        Returns:
-            改进后的回答
+            verification: 来自 verify_against_context 的审核结果，
+                          包含 unsupported_claims 和 suggestions，
+                          用于针对性修正。
         """
         if not settings.hallucination_detection_enabled:
             return answer
-        
+
         if not self._initialized:
             self.initialize()
-        
+
         context_text = "\n".join(context)
         question_text = "\n".join(questions) if questions else "无"
-        
+
+        # 从审核结果中提取针对性的修正指令
+        unsupported_claims = verification.get("unsupported_claims", []) if verification else []
+        suggestions = verification.get("suggestions", []) if verification else []
+
+        claims_note = ""
+        if unsupported_claims:
+            claims_list = "\n".join(f"  - {c}" for c in unsupported_claims)
+            claims_note = f"\n\n【审核发现的疑似幻觉】\n{claims_list}"
+        if suggestions:
+            suggestions_list = "\n".join(f"  - {s}" for s in suggestions)
+            claims_note += f"\n\n【审核建议】\n{suggestions_list}"
+
         refine_prompt = f"""你是一个答案优化专家。请根据参考内容优化回答，确保：
 1. 回答准确基于参考内容
 2. 不添加参考内容未包含的信息
@@ -226,12 +239,13 @@ class HallucinationController:
 
 【原始回答】
 {answer}
+{claims_note}
 
 请输出一优化后的回答，格式要求：
 - 直接回答，不要添加解释
 - 如有不确定信息，用括号标注"[待确认]"
 - 保持原有问题的结构
-- **重要：保留答案中所有的 <PIC> 和 <PIC>[xxx] 图片引用标记，不要删除它们**
+- **必须修正上述审核发现的疑似幻觉说法**
 
 【优化后的回答】
 """
@@ -331,71 +345,101 @@ class ChainOfThoughtReasoner:
         question: str
     ) -> Dict[str, Any]:
         """
-        分解复杂问题
-        
+        分解复杂问题，所有问题统一走 LLM，fast-path 跳过简单 query。
+
+        拆分策略:
+        - 短文本(≤30字)且无多问号 -> 直接视为单一问题，不调 LLM
+        - 其余问题 -> 调用 LLM 分解，返回 is_complex + sub_questions
+
         Args:
             question: 原始问题
-            
+
         Returns:
-            分解结果
+            包含 original_question, sub_questions, reasoning_steps, is_complex, mode 的字典
         """
+        # Fast-path: 简单问题直接返回，不调 LLM
+        question_marks = question.count("？") + question.count("?")
+        if len(question) <= 30 and question_marks <= 1:
+            return {
+                "original_question": question,
+                "sub_questions": [question],
+                "reasoning_steps": [],
+                "is_complex": False,
+                "mode": "fast_path"
+            }
+
         if not settings.enable_cot_reasoning:
             return {
                 "original_question": question,
                 "sub_questions": [question],
                 "reasoning_steps": [],
-                "is_complex": False
+                "is_complex": False,
+                "mode": "disabled"
             }
-        
-        decompose_prompt = f"""请将以下复杂问题分解为多个简单问题，并进行思维链推理。
+
+        decompose_prompt = f"""你是一个客服问题拆分助手。请分析以下用户问题，判断是否包含多个独立问题，并拆分为可独立回答的子问题列表。
+
+要求：
+- 如果用户问题可以用一句话完整回答，则不拆分，is_complex = false
+- 如果问题包含多个维度（如配送、费用、时间），必须拆分
+- 每个子问题必须是语义完整的疑问句
+- 子问题数量控制在 1-5 个以内
+- 拆分时保持原问题的语义，不要添加新问题
 
 问题：{question}
 
-请输出JSON格式的分析结果：
+请严格按以下 JSON 格式输出，不要输出任何其他内容：
 {{
-    "is_complex": 是否是复杂问题,
-    "sub_questions": ["分解后的子问题列表"],
-    "reasoning_steps": ["思维推理步骤列表"],
-    "key_points": ["关键要点列表"]
-}}
-"""
-        
+    "is_complex": true或false,
+    "sub_questions": ["子问题1", "子问题2", ...],
+    "reasoning_steps": ["分析步骤1", "分析步骤2"],
+    "key_points": ["关键要点1", "关键要点2"]
+}}"""
+
         try:
             if not self._initialized:
                 self.initialize()
-            
+
             if self.llm_client is None:
                 return {
                     "original_question": question,
                     "sub_questions": [question],
                     "reasoning_steps": [],
-                    "is_complex": False
+                    "is_complex": False,
+                    "mode": "no_llm"
                 }
-            
+
             response = self.llm_client.invoke(decompose_prompt)
             result_text = response.content if hasattr(response, 'content') else str(response)
-            
+
             import json
-            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', result_text, re.DOTALL)
+            json_match = re.search(
+                r'\{(?:[^{}]|\{[^{}]*\})*\}',
+                result_text,
+                re.DOTALL
+            )
             if json_match:
                 result = json.loads(json_match.group())
                 result["original_question"] = question
+                result["mode"] = "llm"
                 return result
-            
+
             return {
                 "original_question": question,
                 "sub_questions": [question],
                 "reasoning_steps": [],
-                "is_complex": False
+                "is_complex": False,
+                "mode": "parse_failed"
             }
-            
+
         except Exception as e:
             logger.error(f"问题分解失败: {e}")
             return {
                 "original_question": question,
                 "sub_questions": [question],
                 "reasoning_steps": [],
-                "is_complex": False
+                "is_complex": False,
+                "mode": "error"
             }
     
     def synthesize_answer(
