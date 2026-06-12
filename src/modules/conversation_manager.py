@@ -14,12 +14,8 @@
 - 用户索引: 支持按用户ID查询其所有会话
 """
 
-import json
-import sqlite3
 import time
 import uuid
-from pathlib import Path
-from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional, Callable
 from dataclasses import dataclass, field
 from collections import defaultdict
@@ -55,24 +51,6 @@ class Message:
             "timestamp": self.timestamp,
             "metadata": self.metadata
         }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Message":
-        """从字典反序列化"""
-        images_raw = data.get("images")
-        if images_raw is None:
-            images = []
-        elif isinstance(images_raw, list):
-            images = [img for img in images_raw if img]
-        else:
-            images = []
-        return cls(
-            role=data["role"],
-            content=data["content"],
-            images=images,
-            timestamp=data.get("timestamp", time.time()),
-            metadata=data.get("metadata", {}),
-        )
 
 
 @dataclass
@@ -148,179 +126,6 @@ class ConversationContext:
 
         return "\n".join(context_parts)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """转换为字典格式，便于持久化"""
-        return {
-            "session_id": self.session_id,
-            "messages": [msg.to_dict() for msg in self.messages],
-            "created_at": self.created_at,
-            "last_active": self.last_active,
-            "user_info": self.user_info,
-            "state": self.state,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ConversationContext":
-        """从字典反序列化"""
-        messages = [Message.from_dict(m) for m in data.get("messages", [])]
-        user_info_raw = data.get("user_info")
-        user_info = user_info_raw if isinstance(user_info_raw, dict) else {}
-        ctx = cls(
-            session_id=data["session_id"],
-            messages=messages,
-            created_at=data.get("created_at", time.time()),
-            last_active=data.get("last_active", time.time()),
-            user_info=user_info,
-            state=data.get("state", "active"),
-        )
-        return ctx
-
-
-class SessionStorage(ABC):
-    """会话持久化存储抽象基类"""
-
-    @abstractmethod
-    def save(self, context: ConversationContext) -> None:
-        """保存会话"""
-        pass
-
-    @abstractmethod
-    def load(self, session_id: str) -> Optional[ConversationContext]:
-        """加载会话"""
-        pass
-
-    @abstractmethod
-    def delete(self, session_id: str) -> bool:
-        """删除会话"""
-        pass
-
-    @abstractmethod
-    def list_all(self) -> List[str]:
-        """列出所有会话ID"""
-        pass
-
-    @abstractmethod
-    def init(self) -> None:
-        """初始化存储（创建目录/表等）"""
-        pass
-
-
-class SQLiteSessionStorage(SessionStorage):
-    """SQLite 后端存储"""
-
-    def __init__(self, db_path: Path):
-        self.db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
-
-    def init(self) -> None:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
-        self._conn.execute("""
-            CREATE TABLE IF NOT EXISTS sessions (
-                session_id TEXT PRIMARY KEY,
-                data TEXT NOT NULL,
-                last_active REAL NOT NULL
-            )
-        """)
-        self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_last_active ON sessions(last_active)"
-        )
-        self._conn.commit()
-        logger.info(f"SQLite 会话存储初始化完成: {self.db_path}")
-
-    def _connection(self) -> sqlite3.Connection:
-        if self._conn is None:
-            self.init()
-        return self._conn
-
-    def save(self, context: ConversationContext) -> None:
-        data = json.dumps(context.to_dict(), ensure_ascii=False)
-        conn = self._connection()
-        conn.execute(
-            "INSERT OR REPLACE INTO sessions (session_id, data, last_active) VALUES (?, ?, ?)",
-            (context.session_id, data, context.last_active),
-        )
-        conn.commit()
-
-    def load(self, session_id: str) -> Optional[ConversationContext]:
-        conn = self._connection()
-        row = conn.execute(
-            "SELECT data FROM sessions WHERE session_id = ?", (session_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        data = json.loads(row[0])
-        return ConversationContext.from_dict(data)
-
-    def delete(self, session_id: str) -> bool:
-        conn = self._connection()
-        cursor = conn.execute(
-            "DELETE FROM sessions WHERE session_id = ?", (session_id,)
-        )
-        conn.commit()
-        return cursor.rowcount > 0
-
-    def list_all(self) -> List[str]:
-        conn = self._connection()
-        rows = conn.execute("SELECT session_id FROM sessions").fetchall()
-        return [r[0] for r in rows]
-
-
-class JsonFileSessionStorage(SessionStorage):
-    """JSON 文件后端存储（每个会话一个文件）"""
-
-    def __init__(self, storage_path: Path, indent: int = 2):
-        self.storage_path = storage_path
-        self.indent = indent
-
-    def init(self) -> None:
-        self.storage_path.mkdir(parents=True, exist_ok=True)
-        logger.info(f"JSON 文件会话存储初始化完成: {self.storage_path}")
-
-    def _session_file(self, session_id: str) -> Path:
-        safe_id = session_id.replace("/", "_").replace("\\", "_")
-        return self.storage_path / f"{safe_id}.json"
-
-    def save(self, context: ConversationContext) -> None:
-        import json
-        file_path = self._session_file(context.session_id)
-        with open(file_path, "w", encoding="utf-8") as f:
-            json.dump(context.to_dict(), f, ensure_ascii=False, indent=self.indent)
-
-    def load(self, session_id: str) -> Optional[ConversationContext]:
-        import json
-        file_path = self._session_file(session_id)
-        if not file_path.exists():
-            return None
-        with open(file_path, encoding="utf-8") as f:
-            data = json.load(f)
-        return ConversationContext.from_dict(data)
-
-    def delete(self, session_id: str) -> bool:
-        file_path = self._session_file(session_id)
-        if file_path.exists():
-            file_path.unlink()
-            return True
-        return False
-
-    def list_all(self) -> List[str]:
-        if not self.storage_path.exists():
-            return []
-        return [p.stem for p in self.storage_path.glob("*.json")]
-
-
-def create_session_storage() -> SessionStorage:
-    """根据配置创建存储后端实例"""
-    backend = settings.session_storage_backend
-    storage_path = settings.session_storage_path
-    if backend == "sqlite":
-        db_path = storage_path / "sessions.db"
-        return SQLiteSessionStorage(db_path)
-    elif backend == "json_file":
-        return JsonFileSessionStorage(storage_path, indent=settings.session_json_indent)
-    else:
-        raise ValueError(f"未知的 session_storage_backend: {backend}")
-
 
 class ConversationManager:
     """
@@ -331,20 +136,17 @@ class ConversationManager:
     - 会话生命周期管理(创建/获取/删除)
     - 用户-会话索引维护
     - 过期会话清理
-    - 持久化: 通过 SessionStorage 将会话写入磁盘,内存仅作缓存
 
-    存储策略:
-    - 写操作: 存入缓存 + 持久化到存储层
-    - 读操作: 缓存命中直接返回;未命中则从存储层加载
-    - 启动时: 从存储层恢复所有会话到缓存
+    存储结构:
+    - _conversations: {session_id: ConversationContext}  主存储
+    - _user_sessions: {user_id: [session_ids]}  用户索引
     """
 
-    def __init__(self, storage: Optional[SessionStorage] = None):
-        # 持久化存储后端
-        self._storage = storage or create_session_storage()
-        # 内存缓存: session_id -> ConversationContext
-        self._cache: Dict[str, ConversationContext] = {}
+    def __init__(self):
+        # 主会话存储: session_id -> ConversationContext
+        self._conversations: Dict[str, ConversationContext] = {}
         # 用户会话索引: user_id -> [session_ids]
+        # 一个用户可能有多个会话(跨设备/多话题)
         self._user_sessions: Dict[str, List[str]] = defaultdict(list)
         # 会话清理回调函数(可选)
         self._cleanup_callback: Optional[Callable] = None
@@ -354,18 +156,10 @@ class ConversationManager:
         """
         初始化对话管理器
 
-        从持久化存储恢复所有会话到内存缓存
+        当前实现为轻量级内存存储,
+        生产环境可替换为Redis等持久化方案
         """
-        self._storage.init()
-        # 恢复所有会话到缓存
-        for session_id in self._storage.list_all():
-            ctx = self._storage.load(session_id)
-            if ctx is not None:
-                self._cache[session_id] = ctx
-                user_id = ctx.user_info.get("user_id")
-                if user_id and session_id not in self._user_sessions[user_id]:
-                    self._user_sessions[user_id].append(session_id)
-        logger.info(f"对话管理器初始化完成,共恢复 {len(self._cache)} 个会话")
+        logger.info("对话管理器初始化完成")
         self._initialized = True
 
     def create_session(self, user_id: Optional[str] = None) -> str:
@@ -392,10 +186,8 @@ class ConversationManager:
             context.user_info["user_id"] = user_id
             self._user_sessions[user_id].append(session_id)
 
-        # 存入缓存
-        self._cache[session_id] = context
-        # 持久化
-        self._storage.save(context)
+        # 存入主存储
+        self._conversations[session_id] = context
 
         logger.info(f"创建新会话: {session_id}")
         return session_id
@@ -404,7 +196,6 @@ class ConversationManager:
         """
         获取会话上下文
 
-        缓存未命中时从存储层加载。
         自动检查会话是否超时:
         - 如果超时,标记为expired状态
         - 如果正常,更新last_active
@@ -415,24 +206,16 @@ class ConversationManager:
         Returns:
             ConversationContext 或 None(会话不存在)
         """
-        context = self._cache.get(session_id)
-
-        if context is None:
-            # 缓存未命中，从存储层加载
-            context = self._storage.load(session_id)
-            if context is not None:
-                self._cache[session_id] = context
+        context = self._conversations.get(session_id)
 
         if context:
             # 检查会话是否超时
             if time.time() - context.last_active > settings.session_timeout:
                 context.state = "expired"
-                self._storage.save(context)
                 logger.info(f"会话已过期: {session_id}")
             else:
                 # 延长会话活跃时间
                 context.last_active = time.time()
-                self._storage.save(context)
 
         return context
 
@@ -473,8 +256,6 @@ class ConversationManager:
 
         # 添加到会话
         context.add_message(message)
-        # 持久化
-        self._storage.save(context)
 
         logger.debug(f"添加消息到会话 {session_id}: {role}")
         return True
@@ -533,13 +314,8 @@ class ConversationManager:
         Returns:
             是否成功删除
         """
-        if session_id in self._cache:
-            del self._cache[session_id]
-            self._storage.delete(session_id)
-            # 从用户索引中移除
-            for uid, sids in list(self._user_sessions.items()):
-                if session_id in sids:
-                    sids.remove(session_id)
+        if session_id in self._conversations:
+            del self._conversations[session_id]
             logger.info(f"清除会话: {session_id}")
             return True
 
@@ -559,7 +335,7 @@ class ConversationManager:
         if user_id:
             return self._user_sessions.get(user_id, [])
 
-        return list(self._cache.keys())
+        return list(self._conversations.keys())
 
     def cleanup_expired_sessions(self) -> int:
         """
@@ -574,7 +350,7 @@ class ConversationManager:
         expired_ids = []
 
         # 识别过期会话
-        for session_id, context in self._cache.items():
+        for session_id, context in self._conversations.items():
             if current_time - context.last_active > settings.session_timeout:
                 expired_ids.append(session_id)
 
@@ -597,6 +373,75 @@ class ConversationManager:
             callback: 清理时调用的回调函数
         """
         self._cleanup_callback = callback
+
+
+class DialogueState:
+    """
+    对话状态跟踪器 - 管理多问题回答进度
+
+    用于跟踪复杂多问题场景下:
+    - 哪些问题已回答
+    - 当前回答到哪个问题
+    - 是否所有问题都已回答
+    """
+
+    def __init__(self):
+        # 待回答的问题列表
+        self.pending_questions: List[str] = []
+        # 当前问题索引(0-based)
+        self.current_question_index: int = 0
+        # 已回答的问题列表
+        self.answered_questions: List[str] = []
+        # 是否为多问题场景
+        self.is_multi_question: bool = False
+
+    def set_questions(self, questions: List[str]):
+        """
+        设置待回答的问题列表
+
+        Args:
+            questions: 问题列表
+        """
+        self.pending_questions = questions
+        self.is_multi_question = len(questions) > 1
+        self.current_question_index = 0
+        self.answered_questions = []
+
+    def mark_answered(self, question: str):
+        """
+        标记问题已回答
+
+        Args:
+            question: 已回答的问题文本
+        """
+        if question in self.pending_questions:
+            self.answered_questions.append(question)
+            self.current_question_index += 1
+
+    def get_next_question(self) -> Optional[str]:
+        """
+        获取下一个待回答的问题
+
+        Returns:
+            下一个问题,或None(所有问题已回答)
+        """
+        if self.current_question_index < len(self.pending_questions):
+            return self.pending_questions[self.current_question_index]
+        return None
+
+    def is_complete(self) -> bool:
+        """检查是否所有问题都已回答"""
+        return len(self.answered_questions) >= len(self.pending_questions)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """转换为字典格式"""
+        return {
+            "pending_questions": self.pending_questions,
+            "current_question_index": self.current_question_index,
+            "answered_questions": self.answered_questions,
+            "is_multi_question": self.is_multi_question,
+            "is_complete": self.is_complete()
+        }
 
 
 # 全局单例实例 - 延迟初始化

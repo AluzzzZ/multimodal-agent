@@ -6,11 +6,13 @@
 1. 问题分解 (CoT) -> 2. RAG检索 -> 3. 上下文构建 -> 4. 回答生成 -> 5. 幻觉检测 -> 6. 图片关联
 """
 
+import time
 import re
 from typing import List, Dict, Any, Optional, Tuple
 from loguru import logger
 
 from config import settings
+from .rag_engine import RAGEngine, get_rag_engine
 from .dual_route_retriever import DualRouteRetriever, get_dual_route_retriever
 from .hallucination_controller import (
     HallucinationController,
@@ -33,10 +35,14 @@ class ResponseGenerator:
     """
 
     def __init__(self):
-        # LLM客户端
+        # LLM客户端 - 用于生成回答
         self.llm_client = None
+        # RAG引擎 - 用于知识检索
+        self.rag_engine: Optional[RAGEngine] = None
         self.dual_route_retriever: Optional[DualRouteRetriever] = None
+        # 幻觉控制器 - 用于答案验证
         self.hallucination_controller: Optional[HallucinationController] = None
+        # 思维链推理器 - 用于问题拆解
         self.cot_reasoner: Optional[ChainOfThoughtReasoner] = None
         self._initialized = False
 
@@ -44,11 +50,11 @@ class ResponseGenerator:
         """
         初始化所有组件
 
-        初始化顺序:
-        1. LLM客户端 (OpenAI 或本地 Ollama)
-        2. 双重路由检索器
-        3. 幻觉控制器
-        4. 思维链推理器
+        按照以下顺序初始化:
+        1. LLM客户端 (根据配置选择OpenAI或本地模型)
+        2. RAG引擎 (知识检索)
+        3. 幻觉控制器 (答案验证)
+        4. 思维链推理器 (问题拆解)
         """
         if self._initialized:
             return
@@ -82,6 +88,9 @@ class ResponseGenerator:
             self.llm_client = None
 
         # Step 2: 初始化其他组件
+        self.rag_engine = get_rag_engine()
+        self.rag_engine.initialize()
+
         self.dual_route_retriever = get_dual_route_retriever()
         self.dual_route_retriever.initialize()
 
@@ -128,6 +137,10 @@ class ResponseGenerator:
             - reasoning: 思维链推理结果
             - confidence: 回答置信度
         """
+        print(f"\n{'='*60}")
+        print(f"[开始处理] 用户问题: {query}")
+        print(f"{'='*60}\n")
+
         if not self._initialized:
             self.initialize()
 
@@ -138,27 +151,132 @@ class ResponseGenerator:
             "sources": [],
             "reasoning": None,
             "confidence": 0.0,
-            "routes": []
+            "routes": [],
+            "timing": {}  # 耗时统计
         }
 
-        # ========== Step 1: 问题分解 (LLM) ==========
-        # 复杂问题拆分为多个简单子问题，保证每个子问题都能被完整回答
-        # 例如: "能送到乡镇吗？需要加运费吗？多久到？" -> 拆分为3个子问题
-        # 短文本(≤30字)走 fast-path 不调 LLM，其余统一调用 LLM 分解
-        decomposition = self.cot_reasoner.decompose_question(query)
-        result["reasoning"] = decomposition
-        sub_questions = decomposition.get("sub_questions", [query])
+        # 计时开始
+        total_start = time.time()
+
+        # ========== Step 1: 问题分解 (思维链) ==========
+        print(f"\n{'='*40}")
+        print(f"[Step 1] 问题分解")
+        print(f"{'='*40}")
+        print(f"  原始问题: {query}")
+        print(f"  启用CoT: {settings.enable_cot_reasoning}")
+
+        sub_questions = self._split_simple_questions(query)
+        if settings.enable_cot_reasoning and self._needs_deep_reasoning(query, sub_questions):
+            decomposition = self.cot_reasoner.decompose_question(query)
+            result["reasoning"] = decomposition
+            if decomposition.get("is_complex"):
+                sub_questions = decomposition.get("sub_questions", sub_questions or [query])
+            print(f"  模式: 深度推理 (CoT)")
+            print(f"  是否复杂: {decomposition.get('is_complex', False)}")
+            print(f"  推理步骤: {decomposition.get('reasoning_steps', [])}")
+        else:
+            result["reasoning"] = {
+                "original_question": query,
+                "sub_questions": sub_questions,
+                "reasoning_steps": [],
+                "is_complex": len(sub_questions) > 1,
+                "mode": "fast_split"
+            }
+            print(f"  模式: 快速拆分 (fast_split)")
+
+        print(f"  子问题数量: {len(sub_questions)}")
+        for i, sq in enumerate(sub_questions, 1):
+            print(f"    [{i}] {sq}")
+
+        step1_end = time.time()
+        result["timing"]["step1_decomposition"] = round(step1_end - total_start, 3)
 
         # ========== Step 2: RAG检索 ==========
-        # 对每个子问题独立检索，收集所有相关来源
-        # 去重处理避免重复内容
+        print(f"\n{'='*40}")
+        print(f"[Step 2] RAG检索")
+        print(f"{'='*40}")
+
         all_sources = []
         retrieved_images = []
         route_packets = []
 
-        for sq in sub_questions:
+        for sq_idx, sq in enumerate(sub_questions):
+            print(f"\n  --- 子问题 {sq_idx + 1}: {sq} ---")
+
             route_result = self.dual_route_retriever.retrieve(sq, images=images)
             retrieval_result = route_result["results"]
+            route_info = route_result["route_info"]
+
+            # 打印路由决策
+            print(f"\n  [路由决策]")
+            print(f"    路由类型: {route_info.get('route', 'unknown')}")
+            print(f"    规则路由: {route_info.get('rule_route', 'N/A')}")
+            print(f"    service_score: {route_info.get('service_score', 0):.4f}")
+            print(f"    manual_score: {route_info.get('manual_score', 0):.4f}")
+            print(f"    语言: {route_info.get('language', 'unknown')}")
+            print(f"    使用分类器: {route_info.get('classifier_used', False)}")
+            print(f"    分类器标签: {route_info.get('classifier_label', 'N/A')}")
+            print(f"    分类器置信度: {route_info.get('classifier_confidence', 0):.4f}")
+            print(f"    分类器回退原因: {route_info.get('classifier_fallback_reason', 'N/A')}")
+
+            # 打印意图匹配
+            matched_intents = route_info.get('matched_intents', [])
+            if matched_intents:
+                print(f"\n  [意图匹配]")
+                print(f"    命中意图: {matched_intents}")
+
+            # 打印关键词命中
+            service_kw = route_info.get('service_keyword_hits', [])
+            manual_kw = route_info.get('manual_keyword_hits', [])
+            if service_kw:
+                print(f"    service关键词命中: {service_kw}")
+            if manual_kw:
+                print(f"    manual关键词命中: {manual_kw}")
+
+            # 打印候选手册
+            manual_candidates = route_info.get('manual_candidates', [])
+            if manual_candidates:
+                print(f"\n  [手册候选]")
+                print(f"    候选手册: {manual_candidates}")
+            else:
+                print(f"\n  [手册候选] 无候选")
+                # 调试：打印别名映射
+                print(f"    别名映射样例: {dict(list(self.dual_route_retriever.manual_alias_map.items())[:3])}")
+
+            # 打印检索结果
+            print(f"\n  [检索结果]")
+            print(f"    总数: {len(retrieval_result)}")
+
+            # 分别打印 service 和 manual 结果
+            service_res = route_result.get("service_results", [])
+            manual_res = route_result.get("manual_results", [])
+            if service_res:
+                print(f"    Service结果数: {len(service_res)}")
+                for i, item in enumerate(service_res[:2], 1):
+                    score = item.get('relevance_score', 0)
+                    title = item.get('metadata', {}).get('title', 'N/A')
+                    print(f"      Service[{i}] 分数={score:.4f} | {title}")
+            if manual_res:
+                print(f"    Manual结果数: {len(manual_res)}")
+                for i, item in enumerate(manual_res[:2], 1):
+                    score = item.get('relevance_score', 0)
+                    title = item.get('metadata', {}).get('title', 'N/A')
+                    manual_name = item.get('metadata', {}).get('manual_name', 'N/A')
+                    print(f"      Manual[{i}] 分数={score:.4f} | {title} | {manual_name}")
+
+            # 打印合并后的结果
+            if retrieval_result:
+                print(f"\n    [合并后Top3]")
+                for i, item in enumerate(retrieval_result[:3], 1):
+                    score = item.get('relevance_score', 0)
+                    title = item.get('metadata', {}).get('title', item.get('metadata', {}).get('section_title', 'N/A'))
+                    manual = item.get('metadata', {}).get('manual_name', 'N/A')
+                    content_preview = item.get('content', '')[:80]
+                    print(f"      [{i}] 分数={score:.4f} | {title} | {manual}")
+                    print(f"          内容: {content_preview}...")
+            else:
+                print(f"    (无检索结果)")
+
             route_packets.append(
                 {
                     "question": sq,
@@ -176,14 +294,23 @@ class ResponseGenerator:
             )
 
             for item in retrieval_result:
-                # 基于doc_id去重，保留首次出现的结果
                 if item["doc_id"] not in [s["doc_id"] for s in all_sources]:
                     all_sources.append(item)
                     if item.get("image_ids"):
                         retrieved_images.extend(item["image_ids"])
 
+        print(f"\n  [汇总]")
+        print(f"    去重后总来源数: {len(all_sources)}")
+        print(f"    总图片数: {len(retrieved_images)}")
+
+        step2_end = time.time()
+        result["timing"]["step2_retrieval"] = round(step2_end - step1_end, 3)
+
         # ========== Step 3: 构建上下文 ==========
-        # 整合检索到的知识、对话历史、额外上下文
+        print(f"\n{'='*40}")
+        print(f"[Step 3] 构建上下文")
+        print(f"{'='*40}")
+
         context_text = self._build_context(
             all_sources,
             conversation_history,
@@ -191,48 +318,218 @@ class ResponseGenerator:
             result["routes"],
             route_packets=route_packets,
         )
+        print(f"  上下文长度: {len(context_text)} 字符")
+        print(f"  来源数量: {len(all_sources)}")
+        if all_sources:
+            print(f"  来源列表:")
+            for i, src in enumerate(all_sources[:3], 1):
+                title = src.get('metadata', {}).get('title', src.get('metadata', {}).get('section_title', 'N/A'))
+                manual = src.get('metadata', {}).get('manual_name', 'N/A')
+                print(f"    [{i}] {title} - {manual}")
+
+        step3_end = time.time()
+        result["timing"]["step3_context"] = round(step3_end - step2_end, 3)
 
         # ========== Step 4: 生成回答 ==========
-        # 无论单问题还是多问题，都尽量压缩为一次生成调用，减少时延
+        print(f"\n{'='*40}")
+        print(f"[Step 4] 生成回答")
+        print(f"{'='*40}")
+        print(f"  使用LLM: {self.llm_client is not None}")
+        print(f"  子问题数: {len(sub_questions)}")
+
         final_answer = self._generate_answer(
             query,
             sub_questions,
             context_text,
             all_sources=all_sources,
+            route_records=result["routes"],
             route_packets=route_packets,
         )
 
+        print(f"  回答长度: {len(final_answer)} 字符")
+        print(f"  回答预览: {final_answer[:200]}...")
+
+        step4_end = time.time()
+        result["timing"]["step4_generation"] = round(step4_end - step3_end, 3)
+
         # ========== Step 5: 幻觉检测与修正 ==========
-        # 验证答案是否与知识库上下文一致
-        # 如果不一致，尝试修正答案
+        print(f"\n{'='*40}")
+        print(f"[Step 5] 幻觉检测")
+        print(f"{'='*40}")
+        print(f"  启用检测: {settings.hallucination_detection_enabled}")
+
         if settings.hallucination_detection_enabled:
             verification = self.hallucination_controller.verify_against_context(
                 final_answer,
                 [s["content"] for s in all_sources]
             )
 
+            print(f"  一致性: {verification.get('is_consistent', True)}")
+            print(f"  置信度: {verification.get('confidence', 0):.4f}")
+            if verification.get('issues'):
+                print(f"  问题列表: {verification.get('issues')}")
+            if verification.get('unsupported_claims'):
+                print(f"  不支持的声明: {verification.get('unsupported_claims')}")
+
             if not verification.get("is_consistent", True):
-                # 一致性验证失败，将审核发现一并传入以针对性修正
+                print(f"  -> 触发答案修正")
                 refined_answer = self.hallucination_controller.refine_answer(
                     final_answer,
                     [s["content"] for s in all_sources],
-                    sub_questions,
-                    verification,
+                    sub_questions
                 )
                 final_answer = refined_answer
+                print(f"  修正后长度: {len(final_answer)} 字符")
 
             result["confidence"] = verification.get("confidence", 0.0)
         else:
-            # 禁用幻觉检测时使用默认值
+            print(f"  跳过检测，使用默认置信度 0.7")
             result["confidence"] = 0.7
 
-        # ========== Step 6: 提取相关图片 ==========
-        # 从检索结果中提取图片ID，最多返回5张
-        result["images"] = list(set(retrieved_images))[:5]
+        step5_end = time.time()
+        result["timing"]["step5_hallucination"] = round(step5_end - step4_end, 3)
+
+        # ========== Step 6: 提取相关图片并替换占位符 ==========
+        # 核心策略：优先从答案中提取 <PIC>[xxx] 格式的图片 ID
+        # 只有当答案中没有 <PIC>[xxx] 时，才使用检索到的图片
+
+        # 统计答案中已有的 <PIC> 总数（包括裸 <PIC> 和 <PIC>[xxx]）
+        pic_pattern = re.compile(r'<PIC>(?:\[([^\]]+)\])?')
+        pic_matches = list(pic_pattern.finditer(final_answer))
+        pic_count_in_answer = len(pic_matches)
+        pic_ids_in_answer = [m.group(1) for m in pic_matches if m.group(1)]
+
+        print(f"  [DEBUG] 答案长度: {len(final_answer)}")
+        print(f"  [DEBUG] <PIC> 数量: {pic_count_in_answer}")
+        print(f"  [DEBUG] <PIC>[xxx] 数量: {len(pic_ids_in_answer)}")
+        print(f"  [DEBUG] <PIC> 位置和内容: {[(m.start(), m.group()) for m in pic_matches]}")
+        print(f"  [DEBUG] 答案末尾 200 字符: {final_answer[-200:]}")
+
+        if pic_ids_in_answer:
+            # 优先使用答案中已有的图片 ID
+            result["images"] = pic_ids_in_answer
+            print(f"  从答案中提取到 {len(pic_ids_in_answer)} 个图片 ID: {pic_ids_in_answer}")
+        elif pic_count_in_answer > 0:
+            # 如果答案中有裸 <PIC> 但没有 <PIC>[xxx]，使用检索到的图片
+            all_retrieved_images = list(set(retrieved_images))
+            result["images"] = all_retrieved_images[:pic_count_in_answer]
+            print(f"  答案中有 {pic_count_in_answer} 个裸 <PIC>，使用检索图片: {result['images']}")
+        else:
+            # 没有任何图片引用，使用检索到的前几张
+            all_retrieved_images = list(set(retrieved_images))
+            result["images"] = all_retrieved_images[:5]
+            print(f"  答案中无 <PIC>，使用前 5 张检索图片: {result['images']}")
+
         result["sources"] = all_sources
+
+        # 将答案中的 <PIC> 占位符替换为实际的图片 ID
+        if result["images"]:
+            final_answer = self._replace_pic_placeholders(final_answer, result["images"])
         result["response"] = final_answer
 
+        step6_end = time.time()
+        result["timing"]["step6_image"] = round(step6_end - step5_end, 3)
+        result["timing"]["total"] = round(step6_end - total_start, 3)
+
+        print(f"\n{'='*40}")
+        print(f"[完成]")
+        print(f"{'='*40}")
+        print(f"  最终置信度: {result['confidence']:.4f}")
+        print(f"  返回图片数: {len(result['images'])}")
+        print(f"  返回来源数: {len(result['sources'])}")
+        print(f"  总耗时: {result['timing']['total']:.3f}s")
+        print(f"    - Step1 问题分解: {result['timing'].get('step1_decomposition', 0):.3f}s")
+        print(f"    - Step2 RAG检索: {result['timing'].get('step2_retrieval', 0):.3f}s")
+        print(f"    - Step3 上下文构建: {result['timing'].get('step3_context', 0):.3f}s")
+        print(f"    - Step4 回答生成: {result['timing'].get('step4_generation', 0):.3f}s")
+        print(f"    - Step5 幻觉检测: {result['timing'].get('step5_hallucination', 0):.3f}s")
+        print(f"    - Step6 图片处理: {result['timing'].get('step6_image', 0):.3f}s")
+        print(f"\n{'='*60}\n")
+
         return result
+
+    def _split_simple_questions(self, query: str) -> List[str]:
+        """
+        简单问题拆分 - 备用方案(禁用CoT时使用)
+
+        拆分策略:
+        1. 按标点符号(？;；\n)分割文本
+        2. 使用正则模式检测是否包含多个问题
+        3. 返回拆分后的子问题列表
+
+        Args:
+            query: 用户问题
+
+        Returns:
+            子问题列表
+        """
+        # Step 1: 按标点拆分
+        questions = re.split(r'[?？;；\n]', query)
+        questions = [q.strip() for q in questions if q.strip()]
+        questions = self._merge_followup_constraints(questions)
+
+        # Step 2: 检测多问题模式
+        # 常见的问题标记: "有...吗", "怎么...", "如何...", "可以...吗"
+        multi_patterns = [
+            r'有.*吗', r'怎么.*', r'如何.*',
+            r'可以.*吗', r'请问.*', r'.*吗.*'
+        ]
+        has_multiple = sum(1 for p in multi_patterns if re.search(p, query)) > 1
+
+        # Step 3: 判断是否需要拆分
+        if len(questions) > 1 or has_multiple:
+            return questions if questions else [query]
+
+        return [query]
+
+    def _merge_followup_constraints(self, questions: List[str]) -> List[str]:
+        """
+        将约束句合并到前一个主问题。
+
+        例如: ["请问如何安装？", "只需告诉我前五条"] -> ["请问如何安装？，只需告诉我前五条"]
+
+        合并规则:
+        - 句子较短(<=18字符)或包含约束提示词时视为约束句
+        - 问句(?结尾)和以疑问词开头的不合并
+        """
+        if len(questions) <= 1:
+            return questions
+
+        constraint_cues = (
+            "只需", "只要", "告诉我", "列出", "写出", "前", "后", "即可", "分别", "依次", "简要"
+        )
+        question_openers = ("请问", "如何", "怎么", "什么", "哪些", "哪几", "是否", "能否", "可否", "要不要")
+
+        merged: List[str] = []
+        for question in questions:
+            if (
+                merged
+                and (len(question) <= 18 or any(cue in question for cue in constraint_cues))
+                and not question.endswith("吗")
+                and not question.startswith(question_openers)
+            ):
+                merged[-1] = merged[-1].rstrip("，,。；; ") + "，" + question
+            else:
+                merged.append(question)
+        return merged
+
+    def _needs_deep_reasoning(self, query: str, sub_questions: List[str]) -> bool:
+        """
+        控制是否启用慢速深度拆解。
+
+        快速规则拆分足以应对大多数场景，仅在明显复杂时才调用额外LLM，
+        以控制客服接口时延。阈值设置基于公开题分析:
+        - 子问题数>=3 明确是复合问题
+        - 文本较长(>=120字符)且子问题>=2 说明是长复合问
+        - 换行>=2 次表示多行复杂输入
+        """
+        if len(sub_questions) >= 3:
+            return True
+        if len(query) >= 120 and len(sub_questions) >= 2:
+            return True
+        if query.count("\n") >= 2:
+            return True
+        return False
 
     def _build_context(
         self,
@@ -291,6 +588,25 @@ class ResponseGenerator:
                         content = self._clean_context_content(source["content"])
                         if content.strip():
                             context_parts.append(f"手册参考{source_idx}: [{manual_name}] {content.strip()}")
+        elif sources:
+            service_sources = [s for s in sources if s.get("metadata", {}).get("route") == "service"]
+            manual_sources = [s for s in sources if s.get("metadata", {}).get("route") != "service"]
+
+            if service_sources:
+                context_parts.append("【客服政策参考】")
+                for i, source in enumerate(service_sources[:3], 1):
+                    title = source.get("metadata", {}).get("title", f"客服资料{i}")
+                    content = self._clean_context_content(source["content"])
+                    if content.strip():
+                        context_parts.append(f"{i}. [{title}] {content.strip()}")
+
+            if manual_sources:
+                context_parts.append("【产品手册参考】")
+                for i, source in enumerate(manual_sources[:3], 1):
+                    manual_name = source.get("metadata", {}).get("manual_name", source.get("metadata", {}).get("title", f"手册资料{i}"))
+                    content = self._clean_context_content(source["content"])
+                    if content.strip():
+                        context_parts.append(f"{i}. [{manual_name}] {content.strip()}")
 
         # 2. 添加对话历史
         if history:
@@ -307,14 +623,15 @@ class ResponseGenerator:
 
     def _clean_context_content(self, content: str) -> str:
         """
-        清理上下文中的图片 ID 标记，保留 <PIC> 位置提示。
+        清理上下文中的多余内容，保留 <PIC>[xxx] 图片标记。
 
         处理步骤:
-        1. 移除所有 [xxx] 格式的图片 ID
-        2. 合并多余空白字符
+        1. 保留 <PIC>[xxx] 格式的图片标记
+        2. 移除其他 [xxx] 格式的内容（如 [参考1] 等）
+        3. 合并多余空白字符
 
-        注意: 保留 <PIC> 占位符本身，用于指示图片引用位置。
-        <PIC> 通常嵌入在文本中作为图片引用标记。
+        注意: 保留 <PIC> 占位符及其图片 ID，用于指示图片引用位置。
+        <PIC>[xxx] 通常嵌入在文本中作为图片引用标记。
 
         Args:
             content: 原始手册内容
@@ -322,8 +639,34 @@ class ResponseGenerator:
         Returns:
             清理后的文本
         """
-        content_clean = re.sub(r'\[([^\]]+)\]', '', content)
-        return re.sub(r'\s+', ' ', content_clean).strip()
+        # 收集所有 <PIC>[xxx] 格式，替换为临时占位符
+        pic_replacements = {}
+        counter = [0]
+
+        def save_pic(match):
+            pic_id = match.group(1)
+            placeholder = f"__PROTECTED_PIC_{counter[0]}__"
+            pic_replacements[placeholder] = pic_id
+            counter[0] += 1
+            return placeholder
+
+        # 保护 <PIC>[xxx] 格式
+        content_clean = re.sub(r'<PIC>\[([^\]]+)\]', save_pic, content)
+
+        # 移除其他所有 [xxx] 格式
+        content_clean = re.sub(r'\[[^\]]*\]', '', content_clean)
+
+        # 还原受保护的 <PIC>[xxx]
+        for placeholder, pic_id in pic_replacements.items():
+            content_clean = content_clean.replace(placeholder, f'<PIC>[{pic_id}]')
+
+        # 合并多余空白
+        content_clean = re.sub(r'\s+', ' ', content_clean).strip()
+
+        # 确保 <PIC> 保留为 <PIC>[xxx] 格式（如果之前只有 <PIC>）
+        content_clean = re.sub(r'<PIC>(?!\[[^\]]+\])', '<PIC>', content_clean)
+
+        return content_clean
 
     def _generate_answer(
         self,
@@ -331,6 +674,7 @@ class ResponseGenerator:
         sub_questions: List[str],
         context: str,
         all_sources: Optional[List[Dict[str, Any]]] = None,
+        route_records: Optional[List[Dict[str, Any]]] = None,
         route_packets: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """
@@ -360,11 +704,14 @@ class ResponseGenerator:
 {context}
 
 请生成回答，要求：
-1. 准确基于参考资料
-2. 如需包含图片，使用 <PIC> 标记
-3. 如果用户一次问了多个问题，必须逐项回答，不能遗漏
-4. 回答结构清晰，优先使用编号或分段
-5. 如有不确定信息，明确说明，不要编造政策或细节
+1. 语言：回答语言应与用户提问语言保持一致（用户用中文提问则用中文回答，用英文提问则用英文回答）
+2. 准确基于参考资料
+3. 如需包含图片，格式为 <PIC>[图片ID]，如 <PIC>[Manual36_22]、<PIC>[Manual36_23]；每段最多 1-2 个，不要堆砌
+4. 如果用户一次问了多个问题，必须逐项回答，不能遗漏
+5. 回答结构清晰，优先使用编号或分段
+6. 不要使用 Markdown 格式（禁止：**粗体**、### 标题、--- 分隔线、*斜体*）
+7. 如有不确定信息，明确说明，不要编造政策或细节
+
 
 回答：
 """
@@ -374,6 +721,7 @@ class ResponseGenerator:
                 query,
                 sub_questions,
                 all_sources or [],
+                route_records or [],
                 route_packets or [],
             )
 
@@ -387,6 +735,7 @@ class ResponseGenerator:
                 query,
                 sub_questions,
                 all_sources or [],
+                route_records or [],
                 route_packets or [],
             )
 
@@ -395,13 +744,29 @@ class ResponseGenerator:
         query: str,
         sub_questions: List[str],
         sources: List[Dict[str, Any]],
+        route_records: List[Dict[str, Any]],
         route_packets: List[Dict[str, Any]],
     ) -> str:
         """无 LLM 或外部调用失败时的检索驱动兜底回答。"""
         if not sources:
             return "抱歉，我暂时没有检索到足够的参考信息。请补充订单号、商品型号或问题图片，我再继续帮您核实。"
 
-        return self._compose_route_aware_answer(sub_questions, route_packets)
+        if route_packets:
+            return self._compose_route_aware_answer(sub_questions, route_packets)
+
+        route_sequence = [item.get("route", "manual") for item in route_records]
+        primary_route = route_sequence[0] if route_sequence else "manual"
+        service_sources = [s for s in sources if s.get("metadata", {}).get("route") == "service"]
+        manual_sources = [s for s in sources if s.get("metadata", {}).get("route") != "service"]
+
+        if primary_route == "service" and service_sources:
+            return self._compose_service_answer(sub_questions, service_sources)
+        if primary_route == "mixed":
+            service_answer = self._compose_service_answer(sub_questions, service_sources) if service_sources else ""
+            manual_answer = self._compose_manual_answer(sub_questions, manual_sources) if manual_sources else ""
+            mixed_parts = [part for part in [service_answer, manual_answer] if part]
+            return "\n\n".join(mixed_parts) if mixed_parts else self._compose_manual_answer(sub_questions, manual_sources)
+        return self._compose_manual_answer(sub_questions, manual_sources or sources)
 
     def _compose_route_aware_answer(self, sub_questions: List[str], route_packets: List[Dict[str, Any]]) -> str:
         lines: List[str] = []
@@ -989,17 +1354,62 @@ class ResponseGenerator:
         当检索结果包含图片引用时，在回答末尾添加图示提示，
         告知用户可参考哪些配图。
 
+        注意: 传递具体图片 ID（如 <PIC>[xxx]），而非裸 <PIC> 标记，
+        以便 LLM 知道实际有哪些图片可用，避免数量不匹配。
+
         Args:
             source: 手册检索结果条目
 
         Returns:
-            图示提示文本，如 "相关图示：<PIC> <PIC>"，无图时返回空字符串
+            图示提示文本，如 "相关图示：<PIC>[img_001] <PIC>[img_002]"，无图时返回空字符串
         """
         image_ids = source.get("image_ids", [])
         if not image_ids:
             return ""
-        marker_count = min(len(image_ids), 2)
-        return "相关图示：" + " ".join(["<PIC>"] * marker_count)
+        markers = [f"<PIC>[{img_id}]" for img_id in image_ids[:3]]
+        return "相关图示：" + " ".join(markers)
+
+    def _replace_pic_placeholders(self, answer: str, image_ids: List[str]) -> str:
+        """
+        处理答案中的图片占位符。
+
+        处理策略:
+        1. 从答案中提取所有 <PIC>[xxx] 格式的图片 ID
+        2. 把 <PIC>[xxx] 替换为 <PIC>（去掉图片 ID）
+        3. 如果还有裸 <PIC>，用传入的 image_ids 补充
+        4. 在答案末尾追加完整的图片列表
+
+        Args:
+            answer: 原始答案文本
+            image_ids: 备用图片 ID 列表
+
+        Returns:
+            处理后的答案文本
+        """
+        # 从答案中提取 <PIC>[xxx] 格式的图片 ID
+        pic_ids = re.findall(r'<PIC>\[([^\]]+)\]', answer)
+
+        # 移除答案中的图片 ID，只保留 <PIC>
+        answer = re.sub(r'<PIC>\[([^\]]+)\]', '<PIC>', answer)
+
+        # 统计剩余的裸 <PIC> 数量
+        pic_count = len(re.findall(r'<PIC>', answer))
+
+        if pic_ids:
+            # 如果有 <PIC>[xxx]，用提取的图片 ID
+            image_list = pic_ids
+        elif pic_count > 0 and image_ids:
+            # 如果有裸 <PIC> 且有备用图片，用备用图片
+            image_list = image_ids[:pic_count]
+        else:
+            image_list = []
+
+        if image_list:
+            # 生成图片列表
+            image_list_str = "[" + ", ".join(f'"{img_id}"' for img_id in image_list) + "]"
+            return f"{answer}\n\n{image_list_str}"
+
+        return answer
 
     def _simple_similarity(self, left: str, right: str) -> float:
         """
@@ -1083,8 +1493,8 @@ class ResponseGenerator:
             for i, source in enumerate(result["sources"], 1):
                 # 截取前200字符避免过长
                 source_text += f"{i}. {source['content'][:200]}...\n"
-                if source.get("image_ids"):
-                    source_text += f"   相关图片: {', '.join(source['image_ids'])}\n"
+                # if source.get("image_ids"):
+                #     source_text += f"   相关图片: {', '.join(source['image_ids'])}\n"
 
             result["response"] += source_text
 
