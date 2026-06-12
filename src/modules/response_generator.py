@@ -294,6 +294,7 @@ class ResponseGenerator:
             )
 
             for item in retrieval_result:
+                # 基于doc_id去重，保留首次出现的结果
                 if item["doc_id"] not in [s["doc_id"] for s in all_sources]:
                     all_sources.append(item)
                     if item.get("image_ids"):
